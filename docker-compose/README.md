@@ -34,3 +34,17 @@ All of the configs assume, that the Ethereum JSON RPC is running at http://local
 In order to stop launched containers, run `docker-compose -d -f config_file.yml down`, where replace `config_file.yml` with the file name of the config, which has been launched before.
 
 You can play with the BlockScout environment variables, which are present at `./envs/common-blockscout.env`. The description of the environment variables are available in [the docs](https://docs.blockscout.com/for-developers/information-and-settings/env-variables).
+
+
+## Settings for EVM
+
+For web-app without indexer:
+```
+sudo DATABASE_URL=postgresql://postgres:xxx:5432/blockscout docker-compose -f docker-compose-no-db-no-indexer.yml up --detach
+```
+
+For indexer:
+```
+sudo DATABASE_URL=postgresql://postgres:xxx:5432/blockscout docker-compose -f docker-compose-indexer.yml up --detach
+```
+
