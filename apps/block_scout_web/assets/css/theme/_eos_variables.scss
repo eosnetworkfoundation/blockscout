@@ -7,14 +7,14 @@ $additional-font: #fff;
 // footer
 $footer-background-color: #3f65c2;
 $footer-title-color: #fff;
-$footer-text-color: #b2c1e7;
+$footer-text-color: #fff;
 $footer-item-disc-color: $secondary;
 .footer-logo { filter: brightness(0) invert(1); }
 
 // dashboard
 $dashboard-line-color-price: $tertiary; // price left border
 
-$dashboard-banner-chart-legend-label-color: #B2C1E7;
+$dashboard-banner-chart-legend-label-color: #fff;
 $dashboard-stats-item-label-color: $dashboard-banner-chart-legend-label-color;
 $dashboard-banner-chart-legend-value-color: #fff; // chart labels
 $dashboard-stats-item-value-color: #fff; // stat values
