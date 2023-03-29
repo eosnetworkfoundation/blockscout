@@ -20,27 +20,21 @@
 
       <div class="col">
         <div class="text-right footer-social-icons" style="justify-content: flex-end">
-          <a href="https://www.trust.one/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Medium") %>'>
-            <div class="footer-social-icon-container fontawesome-icon medium"></div>
-          </a>
-          <a href="https://www.trust.one/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Twitter") %>'>
+          <a href="https://twitter.com/EosNFoundation/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Twitter") %>'>
             <div class="footer-social-icon-container fontawesome-icon twitter"></div>
           </a>
-          <a href="https://www.trust.one/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Discord") %>'>
+          <a href="https://discord.gg/eos-network/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Discord") %>'>
             <div class="footer-social-icon-container fontawesome-icon discord"></div>
           </a>
-          <a href="https://www.trust.one/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Telegram") %>'>
+          <a href="https://t.me/EOSNetworkFoundation/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Telegram") %>'>
             <div class="footer-social-icon-container fontawesome-icon telegram"></div>
           </a>
-          <a href="https://www.trust.one/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Linkedin") %>'>
-            <div class="footer-social-icon-container fontawesome-icon linkedin"></div>
-          </a>
-          <a href="https://www.trust.one/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Youtube") %>'>
+          <a href="https://www.youtube.com/@EOSNetworkFoundation/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Youtube") %>'>
             <div class="footer-social-icon-container fontawesome-icon youtube"></div>
           </a>
         </div>
       </div>
     </div>
-    <div class="text-left text-sm-start">EOS EVM Explorer is powered by Blockscout.</div>
+    <div class="text-left text-sm-start">EOS EVM Explorer is Powered by Blockscout. </div>
   </div>
 </footer>
