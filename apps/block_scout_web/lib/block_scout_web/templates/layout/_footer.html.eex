@@ -15,6 +15,9 @@
               <img class="footer-logo" style="max-height:56px !important" src="<%= static_path(@conn, logo_footer()) %>"   />
             <% end %>
           </div>
+          <div hidden>
+          <%= render BlockScoutWeb.LayoutView, "_add_chain_to_mm.html" %>
+          </div>
         </div>
       </div>
 
