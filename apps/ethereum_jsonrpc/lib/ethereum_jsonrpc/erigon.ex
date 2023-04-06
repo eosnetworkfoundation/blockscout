@@ -73,6 +73,7 @@ defmodule EthereumJSONRPC.Erigon do
           {:error, error} ->
             Logger.error(inspect(error))
             {:error, error}
+
           {:ok, []} ->
             {:ok, []}
         end
