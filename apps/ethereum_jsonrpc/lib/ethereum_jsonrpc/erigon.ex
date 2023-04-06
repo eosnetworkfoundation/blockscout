@@ -75,7 +75,7 @@ defmodule EthereumJSONRPC.Erigon do
             {:error, error}
 
           {:ok, []} ->
-            {:ok, []}
+            :ignore
         end
 
       {:error, :econnrefused} ->
