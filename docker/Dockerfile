@@ -82,3 +82,4 @@ WORKDIR /app
 
 COPY --from=builder /opt/release/blockscout .
 COPY --from=builder /app/apps/explorer/node_modules ./node_modules
+RUN echo '{"engine":{"Ethash":{"params":{"blockReward":"0x00"}}}}' > /evm.json
