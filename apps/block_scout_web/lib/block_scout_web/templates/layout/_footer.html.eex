@@ -1,15 +1,15 @@
 <footer class="footer">
   <div class="footer-body container">
-    
+
 
     <% col_size = 2 %>
 
     <div class="row">
-      
 
-      <div class="col-xs-12 col-md-4 col-lg-<%= col_size %> footer-list">
+
+      <div class="col-xs-12 col-sm-8 col-lg-8-<%= col_size %> footer-list">
         <!-- Logo -->
-        <div class="row footer-logo-row">
+        <div class="row footer-logo-row text-center text-sm-left">
           <div class="col-md-12">
             <%= link to: webapp_url(@conn), class: "footer-brand" do %>
               <img class="footer-logo" style="max-height:56px !important" src="<%= static_path(@conn, logo_footer()) %>"   />
@@ -20,19 +20,38 @@
           </div>
         </div>
       </div>
+      <div class="col-xs-12 col-sm-2 col-lg" style="position: relative">
 
-      <div class="col">
-        <div class="text-right footer-social-icons" style="justify-content: flex-end">
-          <a href="https://twitter.com/EosNFoundation/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Twitter") %>'>
+          <div style="margin:auto; width: fit-content;">
+            <div style="font-size:1.1rem; font-weight:bold">About</div>
+            <ul>
+              <li>
+                <a href="https://docs.eosnetwork.com/docs/latest/eos-evm/" style="color:white; font-size:0.9rem;">
+                  Docs
+                </a>
+              </li>
+              <li>
+                <a href="https://docs.eosnetwork.com/docs/latest/eos-evm/" style="color:white; font-size:0.9rem;">
+                  FAQ
+                </a>
+              </li>
+            </ul>
+          </div>
+
+        </div>
+
+      <div class="col-xs-12 col-sm-4 col-lg text-center text-sm-right">
+        <div >
+          <a href="https://twitter.com/EosNFoundation/" rel="noreferrer" target="_blank" class="footer-social-icon" style="display:inline-block"  title='<%= gettext("Twitter") %>'>
             <div class="footer-social-icon-container fontawesome-icon twitter"></div>
           </a>
-          <a href="https://discord.gg/eos-network/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Discord") %>'>
+          <a href="https://discord.gg/eos-network/" rel="noreferrer" target="_blank" class="footer-social-icon" style="display:inline-block"  title='<%= gettext("Discord") %>'>
             <div class="footer-social-icon-container fontawesome-icon discord"></div>
           </a>
-          <a href="https://t.me/EOSNetworkFoundation/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Telegram") %>'>
+          <a href="https://t.me/eosevm" rel="noreferrer" target="_blank" class="footer-social-icon" style="display:inline-block" title='<%= gettext("Telegram") %>'>
             <div class="footer-social-icon-container fontawesome-icon telegram"></div>
           </a>
-          <a href="https://www.youtube.com/@EOSNetworkFoundation/" rel="noreferrer" target="_blank" class="footer-social-icon" title='<%= gettext("Youtube") %>'>
+          <a href="https://www.youtube.com/@EOSNetworkFoundation/" rel="noreferrer" target="_blank" class="footer-social-icon" style="display:inline-block" title='<%= gettext("Youtube") %>'>
             <div class="footer-social-icon-container fontawesome-icon youtube"></div>
           </a>
         </div>
