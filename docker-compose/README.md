@@ -50,12 +50,12 @@ You can play with the BlockScout environment variables, which are present at `./
 
 For web-app without indexer:
 ```
-sudo DATABASE_URL=postgresql://postgres:xxx:5432/blockscout docker-compose -f docker-compose-no-db-no-indexer.yml up --detach
+sudo DATABASE_URL=postgresql://postgres:xxx:5432/blockscout docker-compose -f docker-web.yml up --detach
 ```
 
 For indexer:
 ```
-sudo DATABASE_URL=postgresql://postgres:xxx:5432/blockscout docker-compose -f docker-compose-indexer.yml up --detach
+sudo DATABASE_URL=postgresql://postgres:xxx:5432/blockscout docker-compose -f docker-indexer.yml up --detach
 ```
 
 You can adjust BlockScout environment variables from `./envs/common-blockscout.env`. Descriptions of the ENVs are available in [the docs](https://docs.blockscout.com/for-developers/information-and-settings/env-variables).
