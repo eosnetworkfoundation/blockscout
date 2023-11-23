@@ -4,6 +4,8 @@ defmodule BlockScoutWeb.TokenChannel do
   """
   use BlockScoutWeb, :channel
 
+  import Explorer.Chain.SmartContract, only: [burn_address_hash_string: 0]
+
   alias BlockScoutWeb.{CurrencyHelper, TokensView}
   alias BlockScoutWeb.Tokens.TransferView
   alias Explorer.Chain
@@ -12,7 +14,7 @@ defmodule BlockScoutWeb.TokenChannel do
 
   intercept(["token_transfer", "token_total_supply"])
 
-  {:ok, burn_address_hash} = Chain.string_to_address_hash("0x0000000000000000000000000000000000000000")
+  {:ok, burn_address_hash} = Chain.string_to_address_hash(burn_address_hash_string())
   @burn_address_hash burn_address_hash
 
   def join("tokens:" <> _transaction_hash, _params, socket) do
@@ -21,15 +23,20 @@ defmodule BlockScoutWeb.TokenChannel do
 
   def handle_out(
         "token_transfer",
-        %{token_transfer: _token_transfer},
+        %{token_transfers: token_transfers},
         %Phoenix.Socket{handler: BlockScoutWeb.UserSocketV2} = socket
-      ) do
-    push(socket, "token_transfer", %{token_transfer: 1})
+      )
+      when is_list(token_transfers) do
+    push(socket, "token_transfer", %{token_transfer: Enum.count(token_transfers)})
 
     {:noreply, socket}
   end
 
-  def handle_out("token_transfer", %{token_transfer: token_transfer}, socket) do
+  def handle_out(
+        "token_transfer",
+        %{token_transfer: token_transfer},
+        %Phoenix.Socket{handler: BlockScoutWeb.UserSocket} = socket
+      ) do
     Gettext.put_locale(BlockScoutWeb.Gettext, socket.assigns.locale)
 
     rendered_token_transfer =
@@ -47,6 +54,10 @@ defmodule BlockScoutWeb.TokenChannel do
       token_transfer_html: rendered_token_transfer
     })
 
+    {:noreply, socket}
+  end
+
+  def handle_out("token_transfer", _, socket) do
     {:noreply, socket}
   end
 

@@ -1,11 +1,11 @@
 defmodule Explorer.Chain.Token.Instance do
   @moduledoc """
-  Represents an ERC 721 token instance and stores metadata defined in https://github.com/ethereum/EIPs/blob/master/EIPS/eip-721.md.
+  Represents an ERC-721/ERC-1155 token instance and stores metadata defined in https://github.com/ethereum/EIPs/blob/master/EIPS/eip-721.md.
   """
 
   use Explorer.Schema
 
-  alias Explorer.Chain.{Address, Hash, Token, TokenTransfer}
+  alias Explorer.Chain.{Address, Block, Hash, Token, TokenTransfer}
   alias Explorer.Chain.Token.Instance
   alias Explorer.PagingOptions
 
@@ -20,7 +20,10 @@ defmodule Explorer.Chain.Token.Instance do
           token_id: non_neg_integer(),
           token_contract_address_hash: Hash.Address.t(),
           metadata: map() | nil,
-          error: String.t()
+          error: String.t(),
+          owner_address_hash: Hash.Address.t(),
+          owner_updated_at_block: Block.block_number(),
+          owner_updated_at_log_index: non_neg_integer()
         }
 
   @primary_key false
@@ -28,8 +31,10 @@ defmodule Explorer.Chain.Token.Instance do
     field(:token_id, :decimal, primary_key: true)
     field(:metadata, :map)
     field(:error, :string)
+    field(:owner_updated_at_block, :integer)
+    field(:owner_updated_at_log_index, :integer)
 
-    belongs_to(:owner, Address, references: :hash, define_field: false)
+    belongs_to(:owner, Address, foreign_key: :owner_address_hash, references: :hash, type: Hash.Address)
 
     belongs_to(
       :token,
@@ -45,7 +50,15 @@ defmodule Explorer.Chain.Token.Instance do
 
   def changeset(%Instance{} = instance, params \\ %{}) do
     instance
-    |> cast(params, [:token_id, :metadata, :token_contract_address_hash, :error])
+    |> cast(params, [
+      :token_id,
+      :metadata,
+      :token_contract_address_hash,
+      :error,
+      :owner_address_hash,
+      :owner_updated_at_block,
+      :owner_updated_at_log_index
+    ])
     |> validate_required([:token_id, :token_contract_address_hash])
     |> foreign_key_constraint(:token_contract_address_hash)
   end
@@ -89,4 +102,8 @@ defmodule Explorer.Chain.Token.Instance do
       select: to_address
     )
   end
+
+  @spec token_instance_query(non_neg_integer(), Hash.Address.t()) :: Ecto.Query.t()
+  def token_instance_query(token_id, token_contract_address),
+    do: from(i in Instance, where: i.token_contract_address_hash == ^token_contract_address and i.token_id == ^token_id)
 end

@@ -14,6 +14,7 @@ defmodule BlockScoutWeb.TransactionController do
 
   import BlockScoutWeb.Models.GetAddressTags, only: [get_address_tags: 2]
   import BlockScoutWeb.Models.GetTransactionTags, only: [get_transaction_with_addresses_tags: 2]
+  import Explorer.Chain.SmartContract, only: [burn_address_hash_string: 0]
 
   alias BlockScoutWeb.{
     AccessHelper,
@@ -25,7 +26,6 @@ defmodule BlockScoutWeb.TransactionController do
 
   alias Explorer.{Chain, Market}
   alias Explorer.Chain.Cache.Transaction, as: TransactionCache
-  alias Explorer.ExchangeRates.Token
   alias Phoenix.View
 
   @necessity_by_association %{
@@ -37,7 +37,7 @@ defmodule BlockScoutWeb.TransactionController do
     :token_transfers => :optional
   }
 
-  {:ok, burn_address_hash} = Chain.string_to_address_hash("0x0000000000000000000000000000000000000000")
+  {:ok, burn_address_hash} = Chain.string_to_address_hash(burn_address_hash_string())
   @burn_address_hash burn_address_hash
 
   @default_options [
@@ -161,7 +161,7 @@ defmodule BlockScoutWeb.TransactionController do
           render(
             conn,
             "show_token_transfers.html",
-            exchange_rate: Market.get_exchange_rate(Explorer.coin()) || Token.null(),
+            exchange_rate: Market.get_coin_exchange_rate(),
             block_height: Chain.block_height(),
             current_path: Controller.current_full_path(conn),
             current_user: current_user(conn),
@@ -199,7 +199,7 @@ defmodule BlockScoutWeb.TransactionController do
           render(
             conn,
             "show_internal_transactions.html",
-            exchange_rate: Market.get_exchange_rate(Explorer.coin()) || Token.null(),
+            exchange_rate: Market.get_coin_exchange_rate(),
             current_path: Controller.current_full_path(conn),
             current_user: current_user(conn),
             block_height: Chain.block_height(),

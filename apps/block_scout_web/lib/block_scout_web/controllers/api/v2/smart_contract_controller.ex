@@ -6,6 +6,7 @@ defmodule BlockScoutWeb.API.V2.SmartContractController do
   import BlockScoutWeb.PagingHelper,
     only: [current_filter: 1, delete_parameters_from_next_page_params: 1, search_query: 1]
 
+  import Explorer.Chain.SmartContract, only: [burn_address_hash_string: 0]
   import Explorer.SmartContract.Solidity.Verifier, only: [parse_boolean: 1]
 
   alias BlockScoutWeb.{AccessHelper, AddressView}
@@ -26,16 +27,14 @@ defmodule BlockScoutWeb.API.V2.SmartContractController do
 
   @api_true [api?: true]
 
-  @burn_address "0x0000000000000000000000000000000000000000"
-
   action_fallback(BlockScoutWeb.API.V2.FallbackController)
 
   def smart_contract(conn, %{"address_hash" => address_hash_string} = params) do
     with {:format, {:ok, address_hash}} <- {:format, Chain.string_to_address_hash(address_hash_string)},
          {:ok, false} <- AccessHelper.restricted_access?(address_hash_string, params),
-         _ <- PublishHelper.check_and_verify(address_hash_string),
+         _ <- PublishHelper.sourcify_check(address_hash_string),
          {:not_found, {:ok, address}} <-
-           {:not_found, Chain.find_contract_address(address_hash, @smart_contract_address_options, true)} do
+           {:not_found, Chain.find_contract_address(address_hash, @smart_contract_address_options, false)} do
       conn
       |> put_status(200)
       |> render(:smart_contract, %{address: address})
@@ -82,7 +81,7 @@ defmodule BlockScoutWeb.API.V2.SmartContractController do
          {:not_found, true} <- {:not_found, AddressView.check_custom_abi_for_having_write_functions(custom_abi)} do
       conn
       |> put_status(200)
-      |> json(Writer.filter_write_functions(custom_abi.abi))
+      |> json(custom_abi.abi |> Writer.filter_write_functions() |> Reader.get_abi_with_method_id())
     end
   end
 
@@ -95,7 +94,7 @@ defmodule BlockScoutWeb.API.V2.SmartContractController do
          {:not_found, false} <- {:not_found, is_nil(smart_contract)} do
       conn
       |> put_status(200)
-      |> json(Writer.write_functions(smart_contract))
+      |> json(smart_contract |> Writer.write_functions() |> Reader.get_abi_with_method_id())
     end
   end
 
@@ -109,7 +108,7 @@ defmodule BlockScoutWeb.API.V2.SmartContractController do
         address.smart_contract
         |> SmartContract.get_implementation_address_hash(@api_true)
         |> Tuple.to_list()
-        |> List.first() || @burn_address
+        |> List.first() || burn_address_hash_string()
 
       conn
       |> put_status(200)
@@ -131,11 +130,15 @@ defmodule BlockScoutWeb.API.V2.SmartContractController do
         address.smart_contract
         |> SmartContract.get_implementation_address_hash(@api_true)
         |> Tuple.to_list()
-        |> List.first() || @burn_address
+        |> List.first() || burn_address_hash_string()
 
       conn
       |> put_status(200)
-      |> json(Writer.write_functions_proxy(implementation_address_hash_string, @api_true))
+      |> json(
+        implementation_address_hash_string
+        |> Writer.write_functions_proxy(@api_true)
+        |> Reader.get_abi_with_method_id()
+      )
     end
   end
 
@@ -176,6 +179,7 @@ defmodule BlockScoutWeb.API.V2.SmartContractController do
             contract_type,
             params["from"],
             address.smart_contract.abi,
+            true,
             @api_true
           )
         end
@@ -199,8 +203,7 @@ defmodule BlockScoutWeb.API.V2.SmartContractController do
 
     next_page_params =
       next_page
-      |> next_page_params(smart_contracts, params)
-      |> delete_parameters_from_next_page_params()
+      |> next_page_params(smart_contracts, delete_parameters_from_next_page_params(params))
 
     conn
     |> put_status(200)

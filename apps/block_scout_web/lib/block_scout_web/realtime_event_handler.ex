@@ -26,10 +26,13 @@ defmodule BlockScoutWeb.RealtimeEventHandler do
     Subscriber.to(:transactions, :realtime)
     Subscriber.to(:addresses, :on_demand)
     Subscriber.to(:address_coin_balances, :on_demand)
+    Subscriber.to(:address_current_token_balances, :on_demand)
     Subscriber.to(:address_token_balances, :on_demand)
     Subscriber.to(:contract_verification_result, :on_demand)
     Subscriber.to(:token_total_supply, :on_demand)
     Subscriber.to(:changed_bytecode, :on_demand)
+    Subscriber.to(:smart_contract_was_verified, :on_demand)
+    Subscriber.to(:zkevm_confirmed_batches, :realtime)
     # Does not come from the indexer
     Subscriber.to(:exchange_rate)
     Subscriber.to(:transaction_stats)

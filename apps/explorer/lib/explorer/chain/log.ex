@@ -121,7 +121,37 @@ defmodule Explorer.Chain.Log do
   Decode transaction log data.
   """
 
-  def decode(log, transaction, options \\ []) do
+  def decode(log, transaction, options, skip_sig_provider?, contracts_acc \\ %{}, events_acc \\ %{}) do
+    case check_cache(contracts_acc, log.address_hash, options) do
+      {nil, contracts_acc} ->
+        {result, events_acc} = find_candidates(log, transaction, options, events_acc)
+        {result, contracts_acc, events_acc}
+
+      {full_abi, contracts_acc} ->
+        with {:ok, selector, mapping} <- find_and_decode(full_abi, log, transaction),
+             identifier <- Base.encode16(selector.method_id, case: :lower),
+             text <- function_call(selector.function, mapping) do
+          {{:ok, identifier, text, mapping}, contracts_acc, events_acc}
+        else
+          {:error, :could_not_decode} ->
+            case find_candidates(log, transaction, options, events_acc) do
+              {{:error, :contract_not_verified, []}, events_acc} ->
+                {decode_event_via_sig_provider(log, transaction, false, skip_sig_provider?), contracts_acc, events_acc}
+
+              {{:error, :contract_not_verified, candidates}, events_acc} ->
+                {{:error, :contract_verified, candidates}, contracts_acc, events_acc}
+
+              {_, events_acc} ->
+                {decode_event_via_sig_provider(log, transaction, false, skip_sig_provider?), contracts_acc, events_acc}
+            end
+
+          {:error, reason} ->
+            {{:error, reason}, contracts_acc, events_acc}
+        end
+    end
+  end
+
+  defp check_cache(acc, address_hash, options) do
     address_options =
       [
         necessity_by_association: %{
@@ -130,50 +160,34 @@ defmodule Explorer.Chain.Log do
       ]
       |> Keyword.merge(options)
 
-    case Chain.find_contract_address(log.address_hash, address_options, true) do
-      {:ok, %{smart_contract: smart_contract}} ->
-        full_abi = Chain.combine_proxy_implementation_abi(smart_contract, options)
+    if !is_nil(address_hash) && Map.has_key?(acc, address_hash) do
+      {acc[address_hash], acc}
+    else
+      case Chain.find_contract_address(address_hash, address_options, false) do
+        {:ok, %{smart_contract: smart_contract}} ->
+          full_abi = Chain.combine_proxy_implementation_abi(smart_contract, options)
+          {full_abi, Map.put(acc, address_hash, full_abi)}
 
-        with {:ok, selector, mapping} <- find_and_decode(full_abi, log, transaction),
-             identifier <- Base.encode16(selector.method_id, case: :lower),
-             text <- function_call(selector.function, mapping) do
-          {:ok, identifier, text, mapping}
-        else
-          {:error, :could_not_decode} ->
-            case find_candidates(log, transaction, options) do
-              {:error, :contract_not_verified, []} ->
-                decode_event_via_sig_provider(log, transaction)
-
-              {:error, :contract_not_verified, candidates} ->
-                {:error, :contract_verified, candidates}
-
-              _ ->
-                decode_event_via_sig_provider(log, transaction)
-            end
-
-          output ->
-            output
-        end
-
-      _ ->
-        find_candidates(log, transaction, options)
+        _ ->
+          {nil, Map.put(acc, address_hash, nil)}
+      end
     end
   end
 
-  defp find_candidates(log, transaction, options) do
+  defp find_candidates(log, transaction, options, events_acc) do
     case log.first_topic do
       "0x" <> hex_part ->
         case Integer.parse(hex_part, 16) do
           {number, ""} ->
             <<method_id::binary-size(4), _rest::binary>> = :binary.encode_unsigned(number)
-            find_candidates_query(method_id, log, transaction, options)
+            check_events_cache(events_acc, method_id, log, transaction, options)
 
           _ ->
-            {:error, :could_not_decode}
+            {{:error, :could_not_decode}, events_acc}
         end
 
       _ ->
-        {:error, :could_not_decode}
+        {{:error, :could_not_decode}, events_acc}
     end
   end
 
@@ -206,7 +220,18 @@ defmodule Explorer.Chain.Log do
      if(candidates == [], do: decode_event_via_sig_provider(log, transaction, true), else: candidates)}
   end
 
-  defp find_and_decode(abi, log, transaction) do
+  defp check_events_cache(events_acc, method_id, log, transaction, options) do
+    if Map.has_key?(events_acc, method_id) do
+      {events_acc[method_id], events_acc}
+    else
+      result = find_candidates_query(method_id, log, transaction, options)
+      {result, Map.put(events_acc, method_id, result)}
+    end
+  end
+
+  @spec find_and_decode([map()], __MODULE__.t(), Transaction.t()) ::
+          {:error, any} | {:ok, ABI.FunctionSelector.t(), any}
+  def find_and_decode(abi, log, transaction) do
     with {%FunctionSelector{} = selector, mapping} <-
            abi
            |> ABI.parse_specification(include_events?: true)
@@ -250,8 +275,9 @@ defmodule Explorer.Chain.Log do
     IO.iodata_to_binary([name, "(", text, ")"])
   end
 
-  defp decode_event_via_sig_provider(log, transaction, only_candidates? \\ false) do
+  defp decode_event_via_sig_provider(log, transaction, only_candidates?, skip_sig_provider? \\ false) do
     with true <- SigProviderInterface.enabled?(),
+         false <- skip_sig_provider?,
          {:ok, result} <-
            SigProviderInterface.decode_event(
              [
@@ -289,5 +315,12 @@ defmodule Explorer.Chain.Log do
     value
     |> String.trim_leading("0x")
     |> Base.decode16!(case: :lower)
+  end
+
+  def fetch_log_by_tx_hash_and_first_topic(tx_hash, first_topic, options \\ []) do
+    __MODULE__
+    |> where([l], l.transaction_hash == ^tx_hash and l.first_topic == ^first_topic)
+    |> limit(1)
+    |> Chain.select_repo(options).one()
   end
 end

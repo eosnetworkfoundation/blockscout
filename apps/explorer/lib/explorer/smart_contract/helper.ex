@@ -25,9 +25,7 @@ defmodule Explorer.SmartContract.Helper do
       !error?(function) && !event?(function) && !constructor?(function) && nonpayable?(function) &&
         !empty_outputs?(function)
 
-  def empty_inputs?(function), do: function["inputs"] == []
-
-  def empty_outputs?(function), do: function["outputs"] == []
+  def empty_outputs?(function), do: is_nil(function["outputs"]) || function["outputs"] == []
 
   def payable?(function), do: function["stateMutability"] == "payable" || function["payable"]
 
@@ -117,8 +115,24 @@ defmodule Explorer.SmartContract.Helper do
   end
 
   def cast_libraries(map) do
-    map
-    |> Map.values()
-    |> Enum.reduce(%{}, fn map, acc -> Map.merge(acc, map) end)
+    map |> Map.values() |> List.first() |> cast_libraries(map)
+  end
+
+  def cast_libraries(value, map) when is_map(value),
+    do:
+      map
+      |> Map.values()
+      |> Enum.reduce(%{}, fn map, acc -> Map.merge(acc, map) end)
+
+  def cast_libraries(_value, map), do: map
+
+  def contract_creation_input(address_hash) do
+    case Chain.smart_contract_creation_tx_bytecode(address_hash) do
+      %{init: init, created_contract_code: _created_contract_code} ->
+        init
+
+      _ ->
+        nil
+    end
   end
 end

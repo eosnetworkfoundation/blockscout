@@ -1,7 +1,9 @@
 defmodule BlockScoutWeb.API.V2.AddressControllerTest do
   use BlockScoutWeb.ConnCase
 
+  alias BlockScoutWeb.Models.UserFromAuth
   alias Explorer.{Chain, Repo}
+  alias Explorer.Chain.Address.Counters
 
   alias Explorer.Chain.{
     Address,
@@ -11,10 +13,14 @@ defmodule BlockScoutWeb.API.V2.AddressControllerTest do
     Log,
     Token,
     TokenTransfer,
-    Transaction
+    Transaction,
+    Withdrawal
   }
 
+  alias Explorer.Account.WatchlistAddress
   alias Explorer.Chain.Address.CurrentTokenBalance
+
+  import Explorer.Chain, only: [hash_to_lower_case_string: 1]
 
   describe "/addresses/{address_hash}" do
     test "get 404 on non existing address", %{conn: conn} do
@@ -60,7 +66,9 @@ defmodule BlockScoutWeb.API.V2.AddressControllerTest do
         "has_validated_blocks" => false,
         "has_logs" => false,
         "has_tokens" => false,
-        "has_token_transfers" => false
+        "has_token_transfers" => false,
+        "watchlist_address_id" => nil,
+        "has_beacon_chain_withdrawals" => false
       }
 
       request = get(conn, "/api/v2/addresses/#{Address.checksum(address.hash)}")
@@ -68,6 +76,36 @@ defmodule BlockScoutWeb.API.V2.AddressControllerTest do
 
       request = get(conn, "/api/v2/addresses/#{String.downcase(to_string(address.hash))}")
       assert ^correct_response = json_response(request, 200)
+    end
+
+    test "get watchlist id", %{conn: conn} do
+      auth = build(:auth)
+      address = insert(:address)
+      {:ok, user} = UserFromAuth.find_or_create(auth)
+
+      conn = Plug.Test.init_test_session(conn, current_user: user)
+
+      watchlist_address =
+        Repo.account_repo().insert!(%WatchlistAddress{
+          name: "wallet",
+          watchlist_id: user.watchlist_id,
+          address_hash: address.hash,
+          address_hash_hash: hash_to_lower_case_string(address.hash),
+          watch_coin_input: true,
+          watch_coin_output: true,
+          watch_erc_20_input: true,
+          watch_erc_20_output: true,
+          watch_erc_721_input: true,
+          watch_erc_721_output: true,
+          watch_erc_1155_input: true,
+          watch_erc_1155_output: true,
+          notify_email: true
+        })
+
+      request = get(conn, "/api/v2/addresses/#{Address.checksum(address.hash)}")
+      assert response = json_response(request, 200)
+
+      assert response["watchlist_address_id"] == watchlist_address.id
     end
   end
 
@@ -122,9 +160,9 @@ defmodule BlockScoutWeb.API.V2.AddressControllerTest do
 
       insert(:block, miner: address)
 
-      Chain.transaction_count(address)
-      Chain.token_transfers_count(address)
-      Chain.gas_usage_count(address)
+      Counters.transaction_count(address)
+      Counters.token_transfers_count(address)
+      Counters.gas_usage_count(address)
 
       request = get(conn, "/api/v2/addresses/#{address.hash}/counters")
 
@@ -1497,21 +1535,29 @@ defmodule BlockScoutWeb.API.V2.AddressControllerTest do
 
       ctbs_erc_20 =
         for _ <- 0..50 do
-          insert(:address_current_token_balance_with_token_id, address: address, token_type: "ERC-20", token_id: nil)
+          insert(:address_current_token_balance_with_token_id_and_fixed_token_type,
+            address: address,
+            token_type: "ERC-20",
+            token_id: nil
+          )
           |> Repo.preload([:token])
         end
-        |> Enum.sort_by(fn x -> x.value end, :asc)
+        |> Enum.sort_by(fn x -> Decimal.to_float(Decimal.mult(x.value, x.token.fiat_value)) end, :asc)
 
       ctbs_erc_721 =
         for _ <- 0..50 do
-          insert(:address_current_token_balance_with_token_id, address: address, token_type: "ERC-721", token_id: nil)
+          insert(:address_current_token_balance_with_token_id_and_fixed_token_type,
+            address: address,
+            token_type: "ERC-721",
+            token_id: nil
+          )
           |> Repo.preload([:token])
         end
         |> Enum.sort_by(fn x -> x.value end, :asc)
 
       ctbs_erc_1155 =
         for _ <- 0..50 do
-          insert(:address_current_token_balance_with_token_id,
+          insert(:address_current_token_balance_with_token_id_and_fixed_token_type,
             address: address,
             token_type: "ERC-1155",
             token_id: Enum.random(1..100_000)
@@ -1555,6 +1601,35 @@ defmodule BlockScoutWeb.API.V2.AddressControllerTest do
     end
   end
 
+  describe "/addresses/{address_hash}/withdrawals" do
+    test "get empty list on non existing address", %{conn: conn} do
+      address = build(:address)
+
+      request = get(conn, "/api/v2/addresses/#{address.hash}/withdrawals")
+
+      assert %{"message" => "Not found"} = json_response(request, 404)
+    end
+
+    test "get 422 on invalid address", %{conn: conn} do
+      request = get(conn, "/api/v2/addresses/0x/withdrawals")
+
+      assert %{"message" => "Invalid parameter(s)"} = json_response(request, 422)
+    end
+
+    test "get withdrawals", %{conn: conn} do
+      address = insert(:address, withdrawals: insert_list(51, :withdrawal))
+
+      request = get(conn, "/api/v2/addresses/#{address.hash}/withdrawals")
+      assert response = json_response(request, 200)
+
+      request_2nd_page = get(conn, "/api/v2/addresses/#{address.hash}/withdrawals", response["next_page_params"])
+
+      assert response_2nd_page = json_response(request_2nd_page, 200)
+
+      check_paginated_response(response, response_2nd_page, address.withdrawals)
+    end
+  end
+
   describe "/addresses" do
     test "get empty list", %{conn: conn} do
       request = get(conn, "/api/v2/addresses")
@@ -1592,6 +1667,250 @@ defmodule BlockScoutWeb.API.V2.AddressControllerTest do
       assert %{"items" => [address_json], "next_page_params" => nil} = json_response(request, 200)
 
       compare_item(address, address_json)
+    end
+
+    test "check smart contract preload", %{conn: conn} do
+      smart_contract = insert(:smart_contract, address_hash: insert(:contract_address, fetched_coin_balance: 1).hash)
+
+      request = get(conn, "/api/v2/addresses")
+      assert %{"items" => [address]} = json_response(request, 200)
+
+      assert String.downcase(address["hash"]) == to_string(smart_contract.address_hash)
+      assert address["is_contract"] == true
+      assert address["is_verified"] == true
+    end
+  end
+
+  describe "/addresses/{address_hash}/tabs-counters" do
+    test "get 404 on non existing address", %{conn: conn} do
+      address = build(:address)
+
+      request = get(conn, "/api/v2/addresses/#{address.hash}/tabs-counters")
+
+      assert %{"message" => "Not found"} = json_response(request, 404)
+    end
+
+    test "get 422 on invalid address", %{conn: conn} do
+      request = get(conn, "/api/v2/addresses/0x/tabs-counters")
+
+      assert %{"message" => "Invalid parameter(s)"} = json_response(request, 422)
+    end
+
+    test "get counters with 0s", %{conn: conn} do
+      address = insert(:address)
+
+      request = get(conn, "/api/v2/addresses/#{address.hash}/tabs-counters")
+
+      assert %{
+               "validations_count" => 0,
+               "transactions_count" => 0,
+               "token_transfers_count" => 0,
+               "token_balances_count" => 0,
+               "logs_count" => 0,
+               "withdrawals_count" => 0,
+               "internal_txs_count" => 0
+             } = json_response(request, 200)
+    end
+
+    test "get counters and check that cache works", %{conn: conn} do
+      address = insert(:address, withdrawals: insert_list(60, :withdrawal))
+
+      insert(:transaction, from_address: address) |> with_block()
+      insert(:transaction, to_address: address) |> with_block()
+      another_tx = insert(:transaction) |> with_block()
+
+      insert(:token_transfer,
+        from_address: address,
+        transaction: another_tx,
+        block: another_tx.block,
+        block_number: another_tx.block_number
+      )
+
+      insert(:token_transfer,
+        to_address: address,
+        transaction: another_tx,
+        block: another_tx.block,
+        block_number: another_tx.block_number
+      )
+
+      insert(:block, miner: address)
+
+      tx =
+        :transaction
+        |> insert()
+        |> with_block()
+
+      for x <- 1..2 do
+        insert(:internal_transaction,
+          transaction: tx,
+          index: x,
+          block_number: tx.block_number,
+          transaction_index: tx.index,
+          block_hash: tx.block_hash,
+          block_index: x,
+          from_address: address
+        )
+      end
+
+      for _ <- 0..60 do
+        insert(:address_current_token_balance_with_token_id, address: address)
+      end
+
+      for x <- 0..60 do
+        tx =
+          :transaction
+          |> insert()
+          |> with_block()
+
+        insert(:log,
+          transaction: tx,
+          index: x,
+          block: tx.block,
+          block_number: tx.block_number,
+          address: address
+        )
+      end
+
+      request = get(conn, "/api/v2/addresses/#{address.hash}/tabs-counters")
+
+      assert %{
+               "validations_count" => 1,
+               "transactions_count" => 2,
+               "token_transfers_count" => 2,
+               "token_balances_count" => 51,
+               "logs_count" => 51,
+               "withdrawals_count" => 51,
+               "internal_txs_count" => 2
+             } = json_response(request, 200)
+
+      for x <- 3..4 do
+        insert(:internal_transaction,
+          transaction: tx,
+          index: x,
+          block_number: tx.block_number,
+          transaction_index: tx.index,
+          block_hash: tx.block_hash,
+          block_index: x,
+          from_address: address
+        )
+      end
+
+      request = get(conn, "/api/v2/addresses/#{address.hash}/tabs-counters")
+
+      assert %{
+               "validations_count" => 1,
+               "transactions_count" => 2,
+               "token_transfers_count" => 2,
+               "token_balances_count" => 51,
+               "logs_count" => 51,
+               "withdrawals_count" => 51,
+               "internal_txs_count" => 2
+             } = json_response(request, 200)
+    end
+
+    test "check counters cache ttl", %{conn: conn} do
+      address = insert(:address, withdrawals: insert_list(60, :withdrawal))
+
+      insert(:transaction, from_address: address) |> with_block()
+      insert(:transaction, to_address: address) |> with_block()
+      another_tx = insert(:transaction) |> with_block()
+
+      insert(:token_transfer,
+        from_address: address,
+        transaction: another_tx,
+        block: another_tx.block,
+        block_number: another_tx.block_number
+      )
+
+      insert(:token_transfer,
+        to_address: address,
+        transaction: another_tx,
+        block: another_tx.block,
+        block_number: another_tx.block_number
+      )
+
+      insert(:block, miner: address)
+
+      tx =
+        :transaction
+        |> insert()
+        |> with_block()
+
+      for x <- 1..2 do
+        insert(:internal_transaction,
+          transaction: tx,
+          index: x,
+          block_number: tx.block_number,
+          transaction_index: tx.index,
+          block_hash: tx.block_hash,
+          block_index: x,
+          from_address: address
+        )
+      end
+
+      for _ <- 0..60 do
+        insert(:address_current_token_balance_with_token_id, address: address)
+      end
+
+      for x <- 0..60 do
+        tx =
+          :transaction
+          |> insert()
+          |> with_block()
+
+        insert(:log,
+          transaction: tx,
+          index: x,
+          block: tx.block,
+          block_number: tx.block_number,
+          address: address
+        )
+      end
+
+      request = get(conn, "/api/v2/addresses/#{address.hash}/tabs-counters")
+
+      assert %{
+               "validations_count" => 1,
+               "transactions_count" => 2,
+               "token_transfers_count" => 2,
+               "token_balances_count" => 51,
+               "logs_count" => 51,
+               "withdrawals_count" => 51,
+               "internal_txs_count" => 2
+             } = json_response(request, 200)
+
+      old_env = Application.get_env(:explorer, Explorer.Chain.Cache.AddressesTabsCounters)
+      Application.put_env(:explorer, Explorer.Chain.Cache.AddressesTabsCounters, ttl: 200)
+      :timer.sleep(200)
+
+      for x <- 3..4 do
+        insert(:internal_transaction,
+          transaction: tx,
+          index: x,
+          block_number: tx.block_number,
+          transaction_index: tx.index,
+          block_hash: tx.block_hash,
+          block_index: x,
+          from_address: address
+        )
+      end
+
+      insert(:transaction, from_address: address) |> with_block()
+      insert(:transaction, to_address: address) |> with_block()
+
+      request = get(conn, "/api/v2/addresses/#{address.hash}/tabs-counters")
+
+      assert %{
+               "validations_count" => 1,
+               "transactions_count" => 4,
+               "token_transfers_count" => 2,
+               "token_balances_count" => 51,
+               "logs_count" => 51,
+               "withdrawals_count" => 51,
+               "internal_txs_count" => 4
+             } = json_response(request, 200)
+
+      Application.put_env(:explorer, Explorer.Chain.Cache.AddressesTabsCounters, old_env)
     end
   end
 
@@ -1662,6 +1981,12 @@ defmodule BlockScoutWeb.API.V2.AddressControllerTest do
     assert to_string(log.data) == json["data"]
     assert Address.checksum(log.address_hash) == json["address"]["hash"]
     assert to_string(log.transaction_hash) == json["tx_hash"]
+    assert json["block_number"] == log.block_number
+    assert json["block_hash"] == to_string(log.block_hash)
+  end
+
+  defp compare_item(%Withdrawal{} = withdrawal, json) do
+    assert withdrawal.index == json["index"]
   end
 
   defp check_paginated_response(first_page_resp, second_page_resp, list) do
@@ -1675,6 +2000,11 @@ defmodule BlockScoutWeb.API.V2.AddressControllerTest do
     compare_item(Enum.at(list, 0), Enum.at(second_page_resp["items"], 0))
   end
 
+  # with the current implementation no transfers should come with list in totals
+  def check_total(%Token{type: nft}, json, _token_transfer) when nft in ["ERC-721", "ERC-1155"] and is_list(json) do
+    false
+  end
+
   def check_total(%Token{type: nft}, json, token_transfer) when nft in ["ERC-1155"] do
     json["token_id"] in Enum.map(token_transfer.token_ids, fn x -> to_string(x) end) and
       json["value"] == to_string(token_transfer.amount)
@@ -1682,11 +2012,6 @@ defmodule BlockScoutWeb.API.V2.AddressControllerTest do
 
   def check_total(%Token{type: nft}, json, token_transfer) when nft in ["ERC-721"] do
     json["token_id"] in Enum.map(token_transfer.token_ids, fn x -> to_string(x) end)
-  end
-
-  # with the current implementation no transfers should come with list in totals
-  def check_total(%Token{type: nft}, json, _token_transfer) when nft in ["ERC-721", "ERC-1155"] and is_list(json) do
-    false
   end
 
   def check_total(_, _, _), do: true
