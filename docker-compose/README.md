@@ -89,12 +89,14 @@ make stop
 
 ## Settings for EVM
 
-For web-app without indexer:
+Build web-app without indexer:
 ```
-sudo DATABASE_URL=postgresql://postgres:xxx:5432/blockscout docker-compose -f docker-web.yml up --detach
+sudo docker compose -f docker-compose-web-build.yml build
 ```
 
-For indexer:
+Build indexer:
 ```
-sudo DATABASE_URL=postgresql://postgres:xxx:5432/blockscout docker-compose -f docker-indexer.yml up --detach
+sudo docker compose -f docker-compose-indexer-build.yml build
 ```
+
+Deployment scripts moved to other repos.
