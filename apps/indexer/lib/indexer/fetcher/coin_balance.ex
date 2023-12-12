@@ -23,6 +23,8 @@ defmodule Indexer.Fetcher.CoinBalance do
   @default_max_batch_size 500
   @default_max_concurrency 4
 
+  def batch_size, do: defaults()[:max_batch_size]
+
   @doc """
   Asynchronously fetches balances for each address `hash` at the `block_number`.
   """
@@ -61,11 +63,15 @@ defmodule Indexer.Fetcher.CoinBalance do
   @impl BufferedTask
   def init(initial, reducer, _) do
     {:ok, final} =
-      Chain.stream_unfetched_balances(initial, fn address_fields, acc ->
-        address_fields
-        |> entry()
-        |> reducer.(acc)
-      end)
+      Chain.stream_unfetched_balances(
+        initial,
+        fn address_fields, acc ->
+          address_fields
+          |> entry()
+          |> reducer.(acc)
+        end,
+        true
+      )
 
     final
   end
@@ -77,9 +83,12 @@ defmodule Indexer.Fetcher.CoinBalance do
     # `{address, block}`, so take unique params only
     unique_entries = Enum.uniq(entries)
 
+    min_block = Application.get_env(:indexer, :trace_first_block)
+    max_block = Application.get_env(:indexer, :trace_last_block)
+
     unique_filtered_entries =
       Enum.filter(unique_entries, fn {_hash, block_number} ->
-        block_number >= EthereumJSONRPC.first_block_to_fetch(:trace_first_block)
+        block_number >= min_block && if max_block, do: block_number <= max_block, else: true
       end)
 
     unique_entry_count = Enum.count(unique_filtered_entries)

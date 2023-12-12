@@ -47,7 +47,7 @@ defmodule Explorer.Chain.TokenTransfer do
   * `:token_id` - ID of the token (applicable to ERC-721 tokens)
   * `:transaction` - The `t:Explorer.Chain.Transaction.t/0` ledger
   * `:transaction_hash` - Transaction foreign key
-  * `:log_index` - Index of the corresponding `t:Explorer.Chain.Log.t/0` in the transaction.
+  * `:log_index` - Index of the corresponding `t:Explorer.Chain.Log.t/0` in the block.
   * `:amounts` - Tokens transferred amounts in case of batched transfer in ERC-1155
   * `:token_ids` - IDs of the tokens (applicable to ERC-1155 tokens)
   """
@@ -74,6 +74,8 @@ defmodule Explorer.Chain.TokenTransfer do
   @typep api? :: {:api?, true | false}
 
   @constant "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+  @weth_deposit_signature "0xe1fffcc4923d04b559f4d29a8bfc6cda04eb5b0d3c460751c2402c5c5cc9109c"
+  @weth_withdrawal_signature "0x7fcf532c15f0a6db0bd6d0e038bea71d30d808c7d98cb3bf7268a95bf5081b65"
   @erc1155_single_transfer_signature "0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62"
   @erc1155_batch_transfer_signature "0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb"
 
@@ -134,9 +136,6 @@ defmodule Explorer.Chain.TokenTransfer do
     struct
     |> cast(params, @required_attrs ++ @optional_attrs)
     |> validate_required(@required_attrs)
-    |> foreign_key_constraint(:from_address)
-    |> foreign_key_constraint(:to_address)
-    |> foreign_key_constraint(:token_contract_address)
     |> foreign_key_constraint(:transaction)
   end
 
@@ -145,6 +144,10 @@ defmodule Explorer.Chain.TokenTransfer do
   `first_topic` field.
   """
   def constant, do: @constant
+
+  def weth_deposit_signature, do: @weth_deposit_signature
+
+  def weth_withdrawal_signature, do: @weth_withdrawal_signature
 
   def erc1155_single_transfer_signature, do: @erc1155_single_transfer_signature
 
@@ -357,4 +360,12 @@ defmodule Explorer.Chain.TokenTransfer do
   end
 
   def filter_by_type(query, _), do: query
+
+  def only_consensus_transfers_query do
+    from(token_transfer in __MODULE__,
+      inner_join: block in Block,
+      on: token_transfer.block_hash == block.hash,
+      where: block.consensus == true
+    )
+  end
 end

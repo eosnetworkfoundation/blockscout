@@ -7,7 +7,7 @@ defmodule Explorer.Chain.Block do
 
   use Explorer.Schema
 
-  alias Explorer.Chain.{Address, Gas, Hash, PendingBlockOperation, Transaction, Wei}
+  alias Explorer.Chain.{Address, Block, Gas, Hash, PendingBlockOperation, Transaction, Wei, Withdrawal}
   alias Explorer.Chain.Block.{Reward, SecondDegreeRelation}
 
   @optional_attrs ~w(size refetch_needed total_difficulty difficulty base_fee_per_gas)a
@@ -100,6 +100,8 @@ defmodule Explorer.Chain.Block do
 
     has_many(:rewards, Reward, foreign_key: :block_hash)
 
+    has_many(:withdrawals, Withdrawal, foreign_key: :block_hash)
+
     has_one(:pending_operations, PendingBlockOperation, foreign_key: :block_hash)
   end
 
@@ -122,8 +124,8 @@ defmodule Explorer.Chain.Block do
   def blocks_without_reward_query do
     consensus_blocks_query =
       from(
-        b in __MODULE__,
-        where: b.consensus == true
+        block in __MODULE__,
+        where: block.consensus == true
       )
 
     validator_rewards =
@@ -147,9 +149,13 @@ defmodule Explorer.Chain.Block do
   def block_type_filter(query, "Block"), do: where(query, [block], block.consensus == true)
 
   def block_type_filter(query, "Reorg") do
-    query
-    |> join(:left, [block], uncles in assoc(block, :nephew_relations))
-    |> where([block, uncles], block.consensus == false and is_nil(uncles.uncle_hash))
+    from(block in query,
+      as: :block,
+      left_join: uncles in assoc(block, :nephew_relations),
+      where:
+        block.consensus == false and is_nil(uncles.uncle_hash) and
+          exists(from(b in Block, where: b.number == parent_as(:block).number and b.consensus))
+    )
   end
 
   def block_type_filter(query, "Uncle"), do: where(query, [block], block.consensus == false)

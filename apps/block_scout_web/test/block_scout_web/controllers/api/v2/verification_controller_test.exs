@@ -75,7 +75,7 @@ defmodule BlockScoutWeb.API.V2.VerificationControllerTest do
 
       request = post(conn, "/api/v2/smart-contracts/#{contract_address.hash}/verification/via/flattened-code", params)
 
-      assert %{"message" => "Verification started"} = json_response(request, 200)
+      assert %{"message" => "Smart-contract verification started"} = json_response(request, 200)
 
       assert_receive %Phoenix.Socket.Message{
                        payload: %{status: "success"},
@@ -83,6 +83,49 @@ defmodule BlockScoutWeb.API.V2.VerificationControllerTest do
                        topic: ^topic
                      },
                      :timer.seconds(300)
+
+      Application.put_env(:explorer, :solc_bin_api_url, before)
+    end
+
+    test "get error on empty contract name", %{conn: conn} do
+      before = Application.get_env(:explorer, :solc_bin_api_url)
+
+      Application.put_env(:explorer, :solc_bin_api_url, "https://solc-bin.ethereum.org")
+
+      contract_address = insert(:contract_address, contract_code: "0x")
+
+      :transaction
+      |> insert(
+        created_contract_address_hash: contract_address.hash,
+        input: "0x"
+      )
+      |> with_block(status: :ok)
+
+      topic = "addresses:#{contract_address.hash}"
+
+      {:ok, _reply, _socket} =
+        BlockScoutWeb.UserSocketV2
+        |> socket("no_id", %{})
+        |> subscribe_and_join(topic)
+
+      params = %{
+        "source_code" => "123",
+        "compiler_version" => "v0.5.9+commit.e560f70d",
+        "evm_version" => "petersburg",
+        "contract_name" => "",
+        "is_optimization_enabled" => false
+      }
+
+      request = post(conn, "/api/v2/smart-contracts/#{contract_address.hash}/verification/via/flattened-code", params)
+
+      assert %{"message" => "Smart-contract verification started"} = json_response(request, 200)
+
+      assert_receive %Phoenix.Socket.Message{
+                       payload: %{status: "error", errors: %{name: ["Wrong contract name, please try again."]}},
+                       event: "verification_result",
+                       topic: ^topic
+                     },
+                     :timer.seconds(2)
 
       Application.put_env(:explorer, :solc_bin_api_url, before)
     end
@@ -155,7 +198,7 @@ defmodule BlockScoutWeb.API.V2.VerificationControllerTest do
           body
         )
 
-      assert %{"message" => "Verification started"} = json_response(request, 200)
+      assert %{"message" => "Smart-contract verification started"} = json_response(request, 200)
 
       assert_receive %Phoenix.Socket.Message{
                        payload: %{status: "success"},
@@ -179,7 +222,7 @@ defmodule BlockScoutWeb.API.V2.VerificationControllerTest do
     end
 
     test "verify contract from sourcify repo", %{conn: conn} do
-      address = "0x18d89C12e9463Be6343c35C9990361bA4C42AfC2"
+      address = "0xf26594F585De4EB0Ae9De865d9053FEe02ac6eF1"
 
       _contract = insert(:address, hash: address, contract_code: "0x01")
 
@@ -216,7 +259,7 @@ defmodule BlockScoutWeb.API.V2.VerificationControllerTest do
           body
         )
 
-      assert %{"message" => "Verification started"} = json_response(request, 200)
+      assert %{"message" => "Smart-contract verification started"} = json_response(request, 200)
 
       assert_receive %Phoenix.Socket.Message{
                        payload: %{status: "success"},
@@ -286,7 +329,7 @@ defmodule BlockScoutWeb.API.V2.VerificationControllerTest do
 
       request = post(conn, "/api/v2/smart-contracts/#{contract_address.hash}/verification/via/vyper-code", params)
 
-      assert %{"message" => "Verification started"} = json_response(request, 200)
+      assert %{"message" => "Smart-contract verification started"} = json_response(request, 200)
 
       assert_receive %Phoenix.Socket.Message{
                        payload: %{status: "success"},

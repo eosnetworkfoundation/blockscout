@@ -8,7 +8,7 @@ defmodule Indexer.Block.Catchup.MissingRangesCollector do
   alias Explorer.{Chain, Repo}
   alias Explorer.Chain.Cache.BlockNumber
   alias Explorer.Helper, as: ExplorerHelper
-  alias Explorer.Utility.MissingBlockRange
+  alias Explorer.Utility.{MissingBlockRange, MissingRangesManipulator}
   alias Indexer.Block.Catchup.Helper
 
   @default_missing_ranges_batch_size 100_000
@@ -22,7 +22,12 @@ defmodule Indexer.Block.Catchup.MissingRangesCollector do
 
   @impl true
   def init(_) do
-    {:ok, define_init()}
+    {:ok, %{min_fetched_block_number: nil, max_fetched_block_number: nil}, {:continue, :ok}}
+  end
+
+  @impl true
+  def handle_continue(:ok, _state) do
+    {:noreply, define_init()}
   end
 
   defp define_init do
@@ -40,6 +45,8 @@ defmodule Indexer.Block.Catchup.MissingRangesCollector do
   end
 
   defp default_init do
+    MissingBlockRange.sanitize_missing_block_ranges()
+
     {min_number, max_number} = get_initial_min_max()
 
     clear_to_bounds(min_number, max_number)
@@ -56,7 +63,7 @@ defmodule Indexer.Block.Catchup.MissingRangesCollector do
     ranges
     |> Enum.reverse()
     |> Enum.flat_map(fn f..l -> Chain.missing_block_number_ranges(l..f) end)
-    |> MissingBlockRange.save_batch()
+    |> MissingRangesManipulator.save_batch()
 
     if not is_nil(max_fetched_block_number) do
       Process.send_after(self(), :update_future, @future_check_interval)
@@ -113,7 +120,7 @@ defmodule Indexer.Block.Catchup.MissingRangesCollector do
       %{min: nil, max: nil} ->
         max_number = last_block()
         {min_number, first_batch} = fetch_missing_ranges_batch(max_number, false)
-        MissingBlockRange.save_batch(first_batch)
+        MissingRangesManipulator.save_batch(first_batch)
         {min_number, max_number}
 
       %{min: min, max: max} ->
@@ -125,7 +132,7 @@ defmodule Indexer.Block.Catchup.MissingRangesCollector do
   def handle_info(:update_future, %{max_fetched_block_number: max_number} = state) do
     if continue_future_updating?(max_number) do
       {new_max_number, batch} = fetch_missing_ranges_batch(max_number, true)
-      MissingBlockRange.save_batch(batch)
+      MissingRangesManipulator.save_batch(batch)
       Process.send_after(self(), :update_future, @future_check_interval)
       {:noreply, %{state | max_fetched_block_number: new_max_number}}
     else
@@ -137,10 +144,18 @@ defmodule Indexer.Block.Catchup.MissingRangesCollector do
     if min_number > first_block() do
       {new_min_number, batch} = fetch_missing_ranges_batch(min_number, false)
       Process.send_after(self(), :update_past, @past_check_interval)
-      MissingBlockRange.save_batch(batch)
+      MissingRangesManipulator.save_batch(batch)
       {:noreply, %{state | min_fetched_block_number: new_min_number}}
     else
-      {:noreply, state}
+      Process.send_after(self(), :update_past, @past_check_interval * 100)
+      {:noreply, %{state | min_fetched_block_number: reset_min_fetched_block_number(state.max_fetched_block_number)}}
+    end
+  end
+
+  defp reset_min_fetched_block_number(max_fetched_block_number) do
+    case MissingBlockRange.fetch_min_max() do
+      %{min: nil} -> max_fetched_block_number
+      %{min: min} -> min
     end
   end
 
@@ -167,35 +182,30 @@ defmodule Indexer.Block.Catchup.MissingRangesCollector do
   end
 
   defp first_block do
-    string_value = Application.get_env(:indexer, :first_block)
+    first_block_from_config = Application.get_env(:indexer, :first_block)
 
-    case Integer.parse(string_value) do
-      {integer, ""} ->
-        integer
+    min_missing_block_number =
+      "min_missing_block_number"
+      |> Chain.get_last_fetched_counter()
+      |> Decimal.to_integer()
 
-      _ ->
-        min_missing_block_number =
-          "min_missing_block_number"
-          |> Chain.get_last_fetched_counter()
-          |> Decimal.to_integer()
-
-        min_missing_block_number
-    end
+    max(first_block_from_config, min_missing_block_number)
   end
 
   defp last_block do
-    case Integer.parse(Application.get_env(:indexer, :last_block)) do
-      {block, ""} -> block + 1
-      _ -> fetch_max_block_number()
-    end
+    last_block = Application.get_env(:indexer, :last_block)
+    if last_block, do: last_block + 1, else: fetch_max_block_number()
   end
 
   defp fetch_max_block_number do
     case BlockNumber.get_max() do
       0 ->
         json_rpc_named_arguments = Application.get_env(:indexer, :json_rpc_named_arguments)
-        {:ok, number} = EthereumJSONRPC.fetch_block_number_by_tag("latest", json_rpc_named_arguments)
-        number
+
+        case EthereumJSONRPC.fetch_block_number_by_tag("latest", json_rpc_named_arguments) do
+          {:ok, number} -> number
+          _ -> 0
+        end
 
       number ->
         number
@@ -203,9 +213,12 @@ defmodule Indexer.Block.Catchup.MissingRangesCollector do
   end
 
   defp continue_future_updating?(max_fetched_block_number) do
-    case Integer.parse(Application.get_env(:indexer, :last_block)) do
-      {block, ""} -> max_fetched_block_number < block
-      _ -> true
+    last_block = Application.get_env(:indexer, :last_block)
+
+    if last_block do
+      max_fetched_block_number < last_block
+    else
+      true
     end
   end
 

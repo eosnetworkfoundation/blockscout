@@ -1,7 +1,9 @@
 defmodule BlockScoutWeb.AddressContractView do
   use BlockScoutWeb, :view
 
-  alias ABI.{FunctionSelector, TypeDecoder}
+  import Explorer.Helper, only: [decode_data: 2]
+
+  alias ABI.FunctionSelector
   alias Explorer.Chain
   alias Explorer.Chain.{Address, Data, InternalTransaction, Transaction}
 
@@ -35,7 +37,10 @@ defmodule BlockScoutWeb.AddressContractView do
       |> Enum.reduce({0, "#{contract.constructor_arguments}\n\n"}, fn {val, %{"type" => type}}, {count, acc} ->
         formatted_val = val_to_string(val, type, conn)
 
-        {count + 1, "#{acc}Arg [#{count}] (<b>#{type}</b>) : #{formatted_val}\n"}
+        {count + 1,
+         ~E"""
+         <%= acc %>Arg [<%= count %>] (<b><%= type %></b>) : <%= formatted_val %>
+         """}
       end)
 
     result
@@ -81,44 +86,19 @@ defmodule BlockScoutWeb.AddressContractView do
 
   defp get_formatted_address_data(address, address_hash, conn) do
     if address != nil do
-      "<a href=" <> address_path(conn, :show, address) <> ">" <> address_hash <> "</a>"
+      ~E"<a href=<%= address_path(conn, :show, address) %>><%= address_hash %></a>"
     else
       address_hash
     end
   end
 
-  def decode_data("0x" <> encoded_data, types) do
-    decode_data(encoded_data, types)
-  end
-
-  def decode_data(encoded_data, types) do
-    encoded_data
-    |> Base.decode16!(case: :mixed)
-    |> TypeDecoder.decode_raw(types)
-  end
-
   def format_external_libraries(libraries, conn) do
     Enum.reduce(libraries, "", fn %{name: name, address_hash: address_hash}, acc ->
       address = get_address(address_hash)
-      "#{acc}<span class=\"hljs-title\">#{name}</span> : #{get_formatted_address_data(address, address_hash, conn)}  \n"
-    end)
-  end
 
-  def contract_lines_with_index(source_code) do
-    contract_lines =
-      source_code
-      |> String.split("\n")
-
-    max_digits =
-      contract_lines
-      |> Enum.count()
-      |> Integer.digits()
-      |> Enum.count()
-
-    contract_lines
-    |> Enum.with_index(1)
-    |> Enum.map(fn {value, line} ->
-      {value, String.pad_leading(to_string(line), max_digits, " ")}
+      ~E"""
+      <%= acc %><span class="hljs-title"><%= name %></span> : <%= get_formatted_address_data(address, address_hash, conn) %>
+      """
     end)
   end
 

@@ -5,7 +5,6 @@ defmodule BlockScoutWeb.AddressTokenTransferController do
   import BlockScoutWeb.Models.GetAddressTags, only: [get_address_tags: 2]
 
   alias BlockScoutWeb.{AccessHelper, Controller, TransactionView}
-  alias Explorer.ExchangeRates.Token
   alias Explorer.{Chain, Market}
   alias Explorer.Chain.Address
   alias Indexer.Fetcher.CoinBalanceOnDemand
@@ -13,6 +12,8 @@ defmodule BlockScoutWeb.AddressTokenTransferController do
 
   import BlockScoutWeb.Chain,
     only: [current_filter: 1, next_page_params: 3, paging_options: 1, split_list_by_page: 1]
+
+  import Explorer.Chain.SmartContract, only: [burn_address_hash_string: 0]
 
   @transaction_necessity_by_association [
     necessity_by_association: %{
@@ -30,7 +31,7 @@ defmodule BlockScoutWeb.AddressTokenTransferController do
     }
   ]
 
-  {:ok, burn_address_hash} = Chain.string_to_address_hash("0x0000000000000000000000000000000000000000")
+  {:ok, burn_address_hash} = Chain.string_to_address_hash(burn_address_hash_string())
   @burn_address_hash burn_address_hash
 
   def index(
@@ -109,7 +110,8 @@ defmodule BlockScoutWeb.AddressTokenTransferController do
         "index.html",
         address: address,
         coin_balance_status: CoinBalanceOnDemand.trigger_fetch(address),
-        exchange_rate: Market.get_exchange_rate(Explorer.coin()) || Token.null(),
+        exchange_rate: Market.get_coin_exchange_rate(),
+        filter: params["filter"],
         current_path: Controller.current_full_path(conn),
         token: token,
         counters_path: address_path(conn, :address_counters, %{"id" => Address.checksum(address_hash)}),
@@ -201,7 +203,7 @@ defmodule BlockScoutWeb.AddressTokenTransferController do
         "index.html",
         address: address,
         coin_balance_status: CoinBalanceOnDemand.trigger_fetch(address),
-        exchange_rate: Market.get_exchange_rate(Explorer.coin()) || Token.null(),
+        exchange_rate: Market.get_coin_exchange_rate(),
         filter: params["filter"],
         current_path: Controller.current_full_path(conn),
         counters_path: address_path(conn, :address_counters, %{"id" => Address.checksum(address_hash)}),

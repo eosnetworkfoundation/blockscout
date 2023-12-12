@@ -24,6 +24,7 @@ defmodule Explorer.Chain.Transaction do
     InternalTransaction,
     Log,
     SmartContract,
+    Token,
     TokenTransfer,
     Transaction,
     TransactionAction,
@@ -31,12 +32,17 @@ defmodule Explorer.Chain.Transaction do
   }
 
   alias Explorer.Chain.Transaction.{Fork, Status}
+  alias Explorer.Chain.Zkevm.BatchTransaction
   alias Explorer.SmartContract.SigProviderInterface
 
   @optional_attrs ~w(max_priority_fee_per_gas max_fee_per_gas block_hash block_number created_contract_address_hash cumulative_gas_used earliest_processing_start
-                     error gas_used index created_contract_code_indexed_at status to_address_hash revert_reason type has_error_in_internal_txs)a
+                     error gas_price gas_used index created_contract_code_indexed_at status to_address_hash revert_reason type has_error_in_internal_txs)a
 
-  @required_attrs ~w(from_address_hash gas gas_price hash input nonce r s v value)a
+  @suave_optional_attrs ~w(execution_node_hash wrapped_type wrapped_nonce wrapped_to_address_hash wrapped_gas wrapped_gas_price wrapped_max_priority_fee_per_gas wrapped_max_fee_per_gas wrapped_value wrapped_input wrapped_v wrapped_r wrapped_s wrapped_hash)a
+
+  @required_attrs ~w(from_address_hash gas hash input nonce r s v value)a
+
+  @empty_attrs ~w()a
 
   @typedoc """
   X coordinate module n in
@@ -139,43 +145,88 @@ defmodule Explorer.Chain.Transaction do
    * `max_fee_per_gas` - Maximum total amount per unit of gas a user is willing to pay for a transaction, including base fee and priority fee.
    * `type` - New transaction type identifier introduced in EIP 2718 (Berlin HF)
    * `has_error_in_internal_txs` - shows if the internal transactions related to transaction have errors
+   * `execution_node` - execution node address (used by Suave)
+   * `execution_node_hash` - foreign key of `execution_node` (used by Suave)
+   * `wrapped_type` - transaction type from the `wrapped` field (used by Suave)
+   * `wrapped_nonce` - nonce from the `wrapped` field (used by Suave)
+   * `wrapped_to_address` - target address from the `wrapped` field (used by Suave)
+   * `wrapped_to_address_hash` - `wrapped_to_address` foreign key (used by Suave)
+   * `wrapped_gas` - gas from the `wrapped` field (used by Suave)
+   * `wrapped_gas_price` - gas_price from the `wrapped` field (used by Suave)
+   * `wrapped_max_priority_fee_per_gas` - max_priority_fee_per_gas from the `wrapped` field (used by Suave)
+   * `wrapped_max_fee_per_gas` - max_fee_per_gas from the `wrapped` field (used by Suave)
+   * `wrapped_value` - value from the `wrapped` field (used by Suave)
+   * `wrapped_input` - data from the `wrapped` field (used by Suave)
+   * `wrapped_v` - V field of the signature from the `wrapped` field (used by Suave)
+   * `wrapped_r` - R field of the signature from the `wrapped` field (used by Suave)
+   * `wrapped_s` - S field of the signature from the `wrapped` field (used by Suave)
+   * `wrapped_hash` - hash from the `wrapped` field (used by Suave)
   """
-  @type t :: %__MODULE__{
-          block: %Ecto.Association.NotLoaded{} | Block.t() | nil,
-          block_hash: Hash.t() | nil,
-          block_number: Block.block_number() | nil,
-          created_contract_address: %Ecto.Association.NotLoaded{} | Address.t() | nil,
-          created_contract_address_hash: Hash.Address.t() | nil,
-          created_contract_code_indexed_at: DateTime.t() | nil,
-          cumulative_gas_used: Gas.t() | nil,
-          earliest_processing_start: DateTime.t() | nil,
-          error: String.t() | nil,
-          forks: %Ecto.Association.NotLoaded{} | [Fork.t()],
-          from_address: %Ecto.Association.NotLoaded{} | Address.t(),
-          from_address_hash: Hash.Address.t(),
-          gas: Gas.t(),
-          gas_price: wei_per_gas,
-          gas_used: Gas.t() | nil,
-          hash: Hash.t(),
-          index: transaction_index | nil,
-          input: Data.t(),
-          internal_transactions: %Ecto.Association.NotLoaded{} | [InternalTransaction.t()],
-          logs: %Ecto.Association.NotLoaded{} | [Log.t()],
-          nonce: non_neg_integer(),
-          r: r(),
-          s: s(),
-          status: Status.t() | nil,
-          to_address: %Ecto.Association.NotLoaded{} | Address.t() | nil,
-          to_address_hash: Hash.Address.t() | nil,
-          uncles: %Ecto.Association.NotLoaded{} | [Block.t()],
-          v: v(),
-          value: Wei.t(),
-          revert_reason: String.t() | nil,
-          max_priority_fee_per_gas: wei_per_gas | nil,
-          max_fee_per_gas: wei_per_gas | nil,
-          type: non_neg_integer() | nil,
-          has_error_in_internal_txs: boolean()
-        }
+  @type t ::
+          Map.merge(
+            %__MODULE__{
+              block: %Ecto.Association.NotLoaded{} | Block.t() | nil,
+              block_hash: Hash.t() | nil,
+              block_number: Block.block_number() | nil,
+              created_contract_address: %Ecto.Association.NotLoaded{} | Address.t() | nil,
+              created_contract_address_hash: Hash.Address.t() | nil,
+              created_contract_code_indexed_at: DateTime.t() | nil,
+              cumulative_gas_used: Gas.t() | nil,
+              earliest_processing_start: DateTime.t() | nil,
+              error: String.t() | nil,
+              forks: %Ecto.Association.NotLoaded{} | [Fork.t()],
+              from_address: %Ecto.Association.NotLoaded{} | Address.t(),
+              from_address_hash: Hash.Address.t(),
+              gas: Gas.t(),
+              gas_price: wei_per_gas | nil,
+              gas_used: Gas.t() | nil,
+              hash: Hash.t(),
+              index: transaction_index | nil,
+              input: Data.t(),
+              internal_transactions: %Ecto.Association.NotLoaded{} | [InternalTransaction.t()],
+              logs: %Ecto.Association.NotLoaded{} | [Log.t()],
+              nonce: non_neg_integer(),
+              r: r(),
+              s: s(),
+              status: Status.t() | nil,
+              to_address: %Ecto.Association.NotLoaded{} | Address.t() | nil,
+              to_address_hash: Hash.Address.t() | nil,
+              uncles: %Ecto.Association.NotLoaded{} | [Block.t()],
+              v: v(),
+              value: Wei.t(),
+              revert_reason: String.t() | nil,
+              max_priority_fee_per_gas: wei_per_gas | nil,
+              max_fee_per_gas: wei_per_gas | nil,
+              type: non_neg_integer() | nil,
+              has_error_in_internal_txs: boolean(),
+              transaction_fee_log: any(),
+              transaction_fee_token: any()
+            },
+            suave
+          )
+
+  if Application.compile_env(:explorer, :chain_type) == "suave" do
+    @type suave :: %{
+            execution_node: %Ecto.Association.NotLoaded{} | Address.t() | nil,
+            execution_node_hash: Hash.Address.t() | nil,
+            wrapped_type: non_neg_integer() | nil,
+            wrapped_nonce: non_neg_integer() | nil,
+            wrapped_to_address: %Ecto.Association.NotLoaded{} | Address.t() | nil,
+            wrapped_to_address_hash: Hash.Address.t() | nil,
+            wrapped_gas: Gas.t() | nil,
+            wrapped_gas_price: wei_per_gas | nil,
+            wrapped_max_priority_fee_per_gas: wei_per_gas | nil,
+            wrapped_max_fee_per_gas: wei_per_gas | nil,
+            wrapped_value: Wei.t() | nil,
+            wrapped_input: Data.t() | nil,
+            wrapped_v: v() | nil,
+            wrapped_r: r() | nil,
+            wrapped_s: s() | nil,
+            wrapped_hash: Hash.t() | nil
+          }
+  else
+    @type suave :: %{}
+  end
 
   @derive {Poison.Encoder,
            only: [
@@ -240,6 +291,11 @@ defmodule Explorer.Chain.Transaction do
     field(:max_fee_per_gas, Wei)
     field(:type, :integer)
     field(:has_error_in_internal_txs, :boolean)
+    field(:has_token_transfers, :boolean, virtual: true)
+
+    # stability virtual fields
+    field(:transaction_fee_log, :any, virtual: true)
+    field(:transaction_fee_token, :any, virtual: true)
 
     # A transient field for deriving old block hash during transaction upserts.
     # Used to force refetch of a block in case a transaction is re-collated
@@ -274,6 +330,11 @@ defmodule Explorer.Chain.Transaction do
 
     has_many(:uncles, through: [:forks, :uncle])
 
+    has_one(:zkevm_batch_transaction, BatchTransaction, foreign_key: :hash)
+    has_one(:zkevm_batch, through: [:zkevm_batch_transaction, :batch])
+    has_one(:zkevm_sequence_transaction, through: [:zkevm_batch, :sequence_transaction])
+    has_one(:zkevm_verify_transaction, through: [:zkevm_batch, :verify_transaction])
+
     belongs_to(
       :created_contract_address,
       Address,
@@ -281,6 +342,37 @@ defmodule Explorer.Chain.Transaction do
       references: :hash,
       type: Hash.Address
     )
+
+    if System.get_env("CHAIN_TYPE") == "suave" do
+      belongs_to(
+        :execution_node,
+        Address,
+        foreign_key: :execution_node_hash,
+        references: :hash,
+        type: Hash.Address
+      )
+
+      field(:wrapped_type, :integer)
+      field(:wrapped_nonce, :integer)
+      field(:wrapped_gas, :decimal)
+      field(:wrapped_gas_price, Wei)
+      field(:wrapped_max_priority_fee_per_gas, Wei)
+      field(:wrapped_max_fee_per_gas, Wei)
+      field(:wrapped_value, Wei)
+      field(:wrapped_input, Data)
+      field(:wrapped_v, :decimal)
+      field(:wrapped_r, :decimal)
+      field(:wrapped_s, :decimal)
+      field(:wrapped_hash, Hash.Full)
+
+      belongs_to(
+        :wrapped_to_address,
+        Address,
+        foreign_key: :wrapped_to_address_hash,
+        references: :hash,
+        type: Hash.Address
+      )
+    end
   end
 
   @doc """
@@ -292,6 +384,25 @@ defmodule Explorer.Chain.Transaction do
       ...>     from_address_hash: "0xe8ddc5c7a2d2f0d7a9798459c0104fdf5e987aca",
       ...>     gas: 4700000,
       ...>     gas_price: 100000000000,
+      ...>     hash: "0x3a3eb134e6792ce9403ea4188e5e79693de9e4c94e499db132be086400da79e6",
+      ...>     input: "0x6060604052341561000f57600080fd5b336000806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055506102db8061005e6000396000f300606060405260043610610062576000357c0100000000000000000000000000000000000000000000000000000000900463ffffffff1680630900f01014610067578063445df0ac146100a05780638da5cb5b146100c9578063fdacd5761461011e575b600080fd5b341561007257600080fd5b61009e600480803573ffffffffffffffffffffffffffffffffffffffff16906020019091905050610141565b005b34156100ab57600080fd5b6100b3610224565b6040518082815260200191505060405180910390f35b34156100d457600080fd5b6100dc61022a565b604051808273ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390f35b341561012957600080fd5b61013f600480803590602001909190505061024f565b005b60008060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff161415610220578190508073ffffffffffffffffffffffffffffffffffffffff1663fdacd5766001546040518263ffffffff167c010000000000000000000000000000000000000000000000000000000002815260040180828152602001915050600060405180830381600087803b151561020b57600080fd5b6102c65a03f1151561021c57600080fd5b5050505b5050565b60015481565b6000809054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b6000809054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff1614156102ac57806001819055505b505600a165627a7a72305820a9c628775efbfbc17477a472413c01ee9b33881f550c59d21bee9928835c854b0029",
+      ...>     nonce: 0,
+      ...>     r: 0xAD3733DF250C87556335FFE46C23E34DBAFFDE93097EF92F52C88632A40F0C75,
+      ...>     s: 0x72caddc0371451a58de2ca6ab64e0f586ccdb9465ff54e1c82564940e89291e3,
+      ...>     v: 0x8d,
+      ...>     value: 0
+      ...>   }
+      ...> )
+      iex> changeset.valid?
+      true
+
+  A pending transaction does not have a `gas_price` (Erigon)
+
+      iex> changeset = Explorer.Chain.Transaction.changeset(
+      ...>   %Transaction{},
+      ...>   %{
+      ...>     from_address_hash: "0xe8ddc5c7a2d2f0d7a9798459c0104fdf5e987aca",
+      ...>     gas: 4700000,
       ...>     hash: "0x3a3eb134e6792ce9403ea4188e5e79693de9e4c94e499db132be086400da79e6",
       ...>     input: "0x6060604052341561000f57600080fd5b336000806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055506102db8061005e6000396000f300606060405260043610610062576000357c0100000000000000000000000000000000000000000000000000000000900463ffffffff1680630900f01014610067578063445df0ac146100a05780638da5cb5b146100c9578063fdacd5761461011e575b600080fd5b341561007257600080fd5b61009e600480803573ffffffffffffffffffffffffffffffffffffffff16906020019091905050610141565b005b34156100ab57600080fd5b6100b3610224565b6040518082815260200191505060405180910390f35b34156100d457600080fd5b6100dc61022a565b604051808273ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390f35b341561012957600080fd5b61013f600480803590602001909190505061024f565b005b60008060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff161415610220578190508073ffffffffffffffffffffffffffffffffffffffff1663fdacd5766001546040518263ffffffff167c010000000000000000000000000000000000000000000000000000000002815260040180828152602001915050600060405180830381600087803b151561020b57600080fd5b6102c65a03f1151561021c57600080fd5b5050505b5050565b60015481565b6000809054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b6000809054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff1614156102ac57806001819055505b505600a165627a7a72305820a9c628775efbfbc17477a472413c01ee9b33881f550c59d21bee9928835c854b0029",
       ...>     nonce: 0,
@@ -414,7 +525,10 @@ defmodule Explorer.Chain.Transaction do
 
   """
   def changeset(%__MODULE__{} = transaction, attrs \\ %{}) do
-    attrs_to_cast = @required_attrs ++ @optional_attrs
+    attrs_to_cast =
+      @required_attrs ++
+        @optional_attrs ++
+        if Application.get_env(:explorer, :chain_type) == "suave", do: @suave_optional_attrs, else: @empty_attrs
 
     transaction
     |> cast(attrs, attrs_to_cast)
@@ -461,14 +575,17 @@ defmodule Explorer.Chain.Transaction do
       {number, ""} ->
         binary_revert_reason = :binary.encode_unsigned(number)
 
-        decoded_input_data(
-          %Transaction{
-            to_address: smart_contract,
-            hash: hash,
-            input: %Data{bytes: binary_revert_reason}
-          },
-          options
-        )
+        {result, _, _} =
+          decoded_input_data(
+            %Transaction{
+              to_address: smart_contract,
+              hash: hash,
+              input: %Data{bytes: binary_revert_reason}
+            },
+            options
+          )
+
+        result
 
       _ ->
         hex_revert_reason
@@ -476,16 +593,21 @@ defmodule Explorer.Chain.Transaction do
   end
 
   # Because there is no contract association, we know the contract was not verified
-  def decoded_input_data(tx, extract_names? \\ false, options)
+  def decoded_input_data(tx, skip_sig_provider? \\ false, options, full_abi_acc \\ %{}, methods_acc \\ %{})
 
-  def decoded_input_data(%__MODULE__{to_address: nil}, _, _), do: {:error, :no_to_address}
-  def decoded_input_data(%NotLoaded{}, _, _), do: {:error, :not_loaded}
+  def decoded_input_data(%__MODULE__{to_address: nil}, _, _, full_abi_acc, methods_acc),
+    do: {{:error, :no_to_address}, full_abi_acc, methods_acc}
 
-  def decoded_input_data(%__MODULE__{input: %{bytes: bytes}}, _, _) when bytes in [nil, <<>>],
-    do: {:error, :no_input_data}
+  def decoded_input_data(%NotLoaded{}, _, _, full_abi_acc, methods_acc),
+    do: {{:error, :not_loaded}, full_abi_acc, methods_acc}
+
+  def decoded_input_data(%__MODULE__{input: %{bytes: bytes}}, _, _, full_abi_acc, methods_acc)
+      when bytes in [nil, <<>>],
+      do: {{:error, :no_input_data}, full_abi_acc, methods_acc}
 
   if not Application.compile_env(:explorer, :decode_not_a_contract_calls) do
-    def decoded_input_data(%__MODULE__{to_address: %{contract_code: nil}}, _, _), do: {:error, :not_a_contract_call}
+    def decoded_input_data(%__MODULE__{to_address: %{contract_code: nil}}, _, _, full_abi_acc, methods_acc),
+      do: {{:error, :not_a_contract_call}, full_abi_acc, methods_acc}
   end
 
   def decoded_input_data(
@@ -494,8 +616,10 @@ defmodule Explorer.Chain.Transaction do
           input: input,
           hash: hash
         },
-        extract_names?,
-        options
+        skip_sig_provider?,
+        options,
+        full_abi_acc,
+        methods_acc
       ) do
     decoded_input_data(
       %__MODULE__{
@@ -503,8 +627,10 @@ defmodule Explorer.Chain.Transaction do
         input: input,
         hash: hash
       },
-      extract_names?,
-      options
+      skip_sig_provider?,
+      options,
+      full_abi_acc,
+      methods_acc
     )
   end
 
@@ -514,8 +640,10 @@ defmodule Explorer.Chain.Transaction do
           input: input,
           hash: hash
         },
-        extract_names?,
-        options
+        skip_sig_provider?,
+        options,
+        full_abi_acc,
+        methods_acc
       ) do
     decoded_input_data(
       %__MODULE__{
@@ -523,8 +651,10 @@ defmodule Explorer.Chain.Transaction do
         input: input,
         hash: hash
       },
-      extract_names?,
-      options
+      skip_sig_provider?,
+      options,
+      full_abi_acc,
+      methods_acc
     )
   end
 
@@ -534,32 +664,31 @@ defmodule Explorer.Chain.Transaction do
           input: %{bytes: <<method_id::binary-size(4), _::binary>> = data} = input,
           hash: hash
         },
-        extract_names?,
-        options
+        skip_sig_provider?,
+        options,
+        full_abi_acc,
+        methods_acc
       ) do
-    candidates_query =
-      from(
-        contract_method in ContractMethod,
-        where: contract_method.identifier == ^method_id,
-        limit: 1
-      )
+    {methods, methods_acc} =
+      method_id
+      |> check_methods_cache(methods_acc, options)
 
     candidates =
-      candidates_query
-      |> Chain.select_repo(options).all()
+      methods
       |> Enum.flat_map(fn candidate ->
-        case do_decoded_input_data(data, %SmartContract{abi: [candidate.abi], address_hash: nil}, hash, options) do
-          {:ok, _, _, _} = decoded -> [decoded]
+        case do_decoded_input_data(data, %SmartContract{abi: [candidate.abi], address_hash: nil}, hash, options, %{}) do
+          {{:ok, _, _, _} = decoded, _} -> [decoded]
           _ -> []
         end
       end)
 
-    {:error, :contract_not_verified,
-     if(candidates == [], do: decode_function_call_via_sig_provider(input, hash, extract_names?), else: candidates)}
+    {{:error, :contract_not_verified,
+      if(candidates == [], do: decode_function_call_via_sig_provider(input, hash, skip_sig_provider?), else: candidates)},
+     full_abi_acc, methods_acc}
   end
 
-  def decoded_input_data(%__MODULE__{to_address: %{smart_contract: nil}}, _, _) do
-    {:error, :contract_not_verified, []}
+  def decoded_input_data(%__MODULE__{to_address: %{smart_contract: nil}}, _, _, full_abi_acc, methods_acc) do
+    {{:error, :contract_not_verified, []}, full_abi_acc, methods_acc}
   end
 
   def decoded_input_data(
@@ -568,38 +697,42 @@ defmodule Explorer.Chain.Transaction do
           to_address: %{smart_contract: smart_contract},
           hash: hash
         },
-        extract_names?,
-        options
+        skip_sig_provider?,
+        options,
+        full_abi_acc,
+        methods_acc
       ) do
-    case do_decoded_input_data(data, smart_contract, hash, options) do
+    case do_decoded_input_data(data, smart_contract, hash, options, full_abi_acc) do
       # In some cases transactions use methods of some unpredictable contracts, so we can try to look up for method in a whole DB
-      {:error, :could_not_decode} ->
+      {{:error, :could_not_decode}, full_abi_acc} ->
         case decoded_input_data(
                %__MODULE__{
                  to_address: %{smart_contract: nil},
                  input: input,
                  hash: hash
                },
-               extract_names?,
-               options
+               skip_sig_provider?,
+               options,
+               full_abi_acc,
+               methods_acc
              ) do
-          {:error, :contract_not_verified, []} ->
-            decode_function_call_via_sig_provider_wrapper(input, hash, extract_names?)
+          {{:error, :contract_not_verified, []}, full_abi_acc, methods_acc} ->
+            {decode_function_call_via_sig_provider_wrapper(input, hash, skip_sig_provider?), full_abi_acc, methods_acc}
 
-          {:error, :contract_not_verified, candidates} ->
-            {:error, :contract_verified, candidates}
+          {{:error, :contract_not_verified, candidates}, full_abi_acc, methods_acc} ->
+            {{:error, :contract_verified, candidates}, full_abi_acc, methods_acc}
 
-          _ ->
-            {:error, :could_not_decode}
+          {_, full_abi_acc, methods_acc} ->
+            {{:error, :could_not_decode}, full_abi_acc, methods_acc}
         end
 
-      output ->
-        output
+      {output, full_abi_acc} ->
+        {output, full_abi_acc, methods_acc}
     end
   end
 
-  defp decode_function_call_via_sig_provider_wrapper(input, hash, extract_names?) do
-    case decode_function_call_via_sig_provider(input, hash, extract_names?) do
+  defp decode_function_call_via_sig_provider_wrapper(input, hash, skip_sig_provider?) do
+    case decode_function_call_via_sig_provider(input, hash, skip_sig_provider?) do
       [] ->
         {:error, :could_not_decode}
 
@@ -608,29 +741,60 @@ defmodule Explorer.Chain.Transaction do
     end
   end
 
-  defp do_decoded_input_data(data, smart_contract, hash, options) do
-    full_abi = Chain.combine_proxy_implementation_abi(smart_contract, options)
+  defp do_decoded_input_data(data, smart_contract, hash, options, full_abi_acc) do
+    {full_abi, full_abi_acc} = check_full_abi_cache(smart_contract, full_abi_acc, options)
 
-    with {:ok, {selector, values}} <- find_and_decode(full_abi, data, hash),
-         {:ok, mapping} <- selector_mapping(selector, values, hash),
-         identifier <- Base.encode16(selector.method_id, case: :lower),
-         text <- function_call(selector.function, mapping),
-         do: {:ok, identifier, text, mapping}
+    {with(
+       {:ok, {selector, values}} <- find_and_decode(full_abi, data, hash),
+       {:ok, mapping} <- selector_mapping(selector, values, hash),
+       identifier <- Base.encode16(selector.method_id, case: :lower),
+       text <- function_call(selector.function, mapping),
+       do: {:ok, identifier, text, mapping}
+     ), full_abi_acc}
   end
 
-  defp decode_function_call_via_sig_provider(%{bytes: data} = input, hash, extract_names?) do
+  defp decode_function_call_via_sig_provider(%{bytes: data} = input, hash, skip_sig_provider?) do
     with true <- SigProviderInterface.enabled?(),
-         false <- extract_names?,
+         false <- skip_sig_provider?,
          {:ok, result} <- SigProviderInterface.decode_function_call(input),
          true <- is_list(result),
          false <- Enum.empty?(result),
          abi <- [result |> List.first() |> Map.put("outputs", []) |> Map.put("type", "function")],
-         {:ok, _, _, _} = candidate <-
-           do_decoded_input_data(data, %SmartContract{abi: abi, address_hash: nil}, hash, []) do
+         {{:ok, _, _, _} = candidate, _} <-
+           do_decoded_input_data(data, %SmartContract{abi: abi, address_hash: nil}, hash, [], %{}) do
       [candidate]
     else
       _ ->
         []
+    end
+  end
+
+  defp check_methods_cache(method_id, methods_acc, options) do
+    if Map.has_key?(methods_acc, method_id) do
+      {methods_acc[method_id], methods_acc}
+    else
+      candidates_query =
+        from(
+          contract_method in ContractMethod,
+          where: contract_method.identifier == ^method_id,
+          limit: 1
+        )
+
+      result =
+        candidates_query
+        |> Chain.select_repo(options).all()
+
+      {result, Map.put(methods_acc, method_id, result)}
+    end
+  end
+
+  defp check_full_abi_cache(%{address_hash: address_hash} = smart_contract, full_abi_acc, options) do
+    if !is_nil(address_hash) && Map.has_key?(full_abi_acc, address_hash) do
+      {full_abi_acc[address_hash], full_abi_acc}
+    else
+      full_abi = Chain.combine_proxy_implementation_abi(smart_contract, options)
+
+      {full_abi, Map.put(full_abi_acc, address_hash, full_abi)}
     end
   end
 
@@ -651,10 +815,10 @@ defmodule Explorer.Chain.Transaction do
              true,
              []
            ) do
-        {:error, :contract_not_verified, [{:ok, _method_id, decoded_func, _}]} ->
+        {{:error, :contract_not_verified, [{:ok, _method_id, decoded_func, _}]}, _, _} ->
           parse_method_name(decoded_func)
 
-        {:error, :contract_not_verified, []} ->
+        {{:error, :contract_not_verified, []}, _, _} ->
           "0x" <> Base.encode16(method_id, case: :lower)
 
         _ ->
@@ -686,12 +850,12 @@ defmodule Explorer.Chain.Transaction do
   end
 
   defp find_and_decode(abi, data, hash) do
-    result =
-      abi
-      |> ABI.parse_specification()
-      |> ABI.find_and_decode(data)
-
-    {:ok, result}
+    with {%FunctionSelector{}, _mapping} = result <-
+           abi
+           |> ABI.parse_specification()
+           |> ABI.find_and_decode(data) do
+      {:ok, result}
+    end
   rescue
     e ->
       Logger.warn(fn ->
@@ -728,6 +892,25 @@ defmodule Explorer.Chain.Transaction do
   Produces a list of queries starting from the given one and adding filters for
   transactions that are linked to the given address_hash through a direction.
   """
+  def matching_address_queries_list(query, :from, address_hashes) when is_list(address_hashes) do
+    [where(query, [t], t.from_address_hash in ^address_hashes)]
+  end
+
+  def matching_address_queries_list(query, :to, address_hashes) when is_list(address_hashes) do
+    [
+      where(query, [t], t.to_address_hash in ^address_hashes),
+      where(query, [t], t.created_contract_address_hash in ^address_hashes)
+    ]
+  end
+
+  def matching_address_queries_list(query, _direction, address_hashes) when is_list(address_hashes) do
+    [
+      where(query, [t], t.from_address_hash in ^address_hashes),
+      where(query, [t], t.to_address_hash in ^address_hashes),
+      where(query, [t], t.created_contract_address_hash in ^address_hashes)
+    ]
+  end
+
   def matching_address_queries_list(query, :from, address_hash) do
     [where(query, [t], t.from_address_hash == ^address_hash)]
   end
@@ -913,4 +1096,120 @@ defmodule Explorer.Chain.Transaction do
       limit: 1
     )
   end
+
+  @doc """
+  Returns true if the transaction is a Rootstock REMASC transaction.
+  """
+  @spec is_rootstock_remasc_transaction(Explorer.Chain.Transaction.t()) :: boolean
+  def is_rootstock_remasc_transaction(%__MODULE__{to_address_hash: to_address_hash}) do
+    case Hash.Address.cast(Application.get_env(:explorer, __MODULE__)[:rootstock_remasc_address]) do
+      {:ok, address} -> address == to_address_hash
+      _ -> false
+    end
+  end
+
+  @doc """
+  Returns true if the transaction is a Rootstock bridge transaction.
+  """
+  @spec is_rootstock_bridge_transaction(Explorer.Chain.Transaction.t()) :: boolean
+  def is_rootstock_bridge_transaction(%__MODULE__{to_address_hash: to_address_hash}) do
+    case Hash.Address.cast(Application.get_env(:explorer, __MODULE__)[:rootstock_bridge_address]) do
+      {:ok, address} -> address == to_address_hash
+      _ -> false
+    end
+  end
+
+  @api_true [api?: true]
+  @transaction_fee_event_signature "0x99e7b0ba56da2819c37c047f0511fd2bf6c9b4e27b4a979a19d6da0f74be8155"
+  @transaction_fee_event_abi [
+    %{
+      "anonymous" => false,
+      "inputs" => [
+        %{
+          "indexed" => false,
+          "internalType" => "address",
+          "name" => "token",
+          "type" => "address"
+        },
+        %{
+          "indexed" => false,
+          "internalType" => "uint256",
+          "name" => "totalFee",
+          "type" => "uint256"
+        },
+        %{
+          "indexed" => false,
+          "internalType" => "address",
+          "name" => "validator",
+          "type" => "address"
+        },
+        %{
+          "indexed" => false,
+          "internalType" => "uint256",
+          "name" => "validatorFee",
+          "type" => "uint256"
+        },
+        %{
+          "indexed" => false,
+          "internalType" => "address",
+          "name" => "dapp",
+          "type" => "address"
+        },
+        %{
+          "indexed" => false,
+          "internalType" => "uint256",
+          "name" => "dappFee",
+          "type" => "uint256"
+        }
+      ],
+      "name" => "TransactionFee",
+      "type" => "event"
+    }
+  ]
+
+  def maybe_prepare_stability_fees(transactions) do
+    if Application.get_env(:explorer, :chain_type) == "stability" do
+      maybe_prepare_stability_fees_inner(transactions)
+    else
+      transactions
+    end
+  end
+
+  defp maybe_prepare_stability_fees_inner(transactions) when is_list(transactions) do
+    {transactions, _tokens_acc} =
+      Enum.map_reduce(transactions, %{}, fn transaction, tokens_acc ->
+        case Log.fetch_log_by_tx_hash_and_first_topic(transaction.hash, @transaction_fee_event_signature, @api_true) do
+          fee_log when not is_nil(fee_log) ->
+            {:ok, _selector, mapping} = Log.find_and_decode(@transaction_fee_event_abi, fee_log, transaction)
+
+            [{"token", "address", false, token_address_hash}, _, _, _, _, _] = mapping
+
+            {token, new_tokens_acc} = check_tokens_acc(bytes_to_address_hash(token_address_hash), tokens_acc)
+
+            {%Transaction{transaction | transaction_fee_log: mapping, transaction_fee_token: token}, new_tokens_acc}
+
+          _ ->
+            {transaction, tokens_acc}
+        end
+      end)
+
+    transactions
+  end
+
+  defp maybe_prepare_stability_fees_inner(transaction) do
+    [transaction] = maybe_prepare_stability_fees_inner([transaction])
+    transaction
+  end
+
+  defp check_tokens_acc(token_address_hash, tokens_acc) do
+    if Map.has_key?(tokens_acc, token_address_hash) do
+      {tokens_acc[token_address_hash], tokens_acc}
+    else
+      token = Token.get_by_contract_address_hash(token_address_hash, @api_true)
+
+      {token, Map.put(tokens_acc, token_address_hash, token)}
+    end
+  end
+
+  def bytes_to_address_hash(bytes), do: %Hash{byte_count: 20, bytes: bytes}
 end

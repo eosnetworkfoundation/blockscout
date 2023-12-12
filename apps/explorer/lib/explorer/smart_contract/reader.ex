@@ -270,7 +270,7 @@ defmodule Explorer.SmartContract.Reader do
 
     abi_with_method_id
     |> Enum.filter(&Helper.queriable_method?(&1))
-    |> Enum.map(&fetch_current_value_from_blockchain(&1, abi_with_method_id, contract_address_hash, false, from))
+    |> Enum.map(&fetch_current_value_from_blockchain(&1, abi_with_method_id, contract_address_hash, false, [], from))
   end
 
   def read_only_functions_from_abi_with_sender(_, _, _), do: []
@@ -332,21 +332,34 @@ defmodule Explorer.SmartContract.Reader do
     "tuple[#{tuple_types}]"
   end
 
-  def fetch_current_value_from_blockchain(function, abi, contract_address_hash, leave_error_as_map, from \\ nil) do
+  def fetch_current_value_from_blockchain(
+        function,
+        abi,
+        contract_address_hash,
+        leave_error_as_map,
+        options,
+        from \\ nil
+      ) do
     case function do
       %{"inputs" => []} ->
         method_id = function["method_id"]
         args = function["inputs"]
-        outputs = function["outputs"]
 
-        values =
-          contract_address_hash
-          |> query_verified_contract(%{method_id => normalize_args(args)}, from, leave_error_as_map, abi)
-          |> link_outputs_and_values(outputs, method_id)
+        %{output: outputs, names: names} =
+          query_function_with_names(
+            contract_address_hash,
+            %{method_id: method_id, args: args},
+            :regular,
+            from,
+            abi,
+            leave_error_as_map,
+            options
+          )
 
         function
-        |> Map.replace!("outputs", values)
+        |> Map.replace!("outputs", outputs)
         |> Map.put("abi_outputs", Map.get(function, "outputs", []))
+        |> Map.put("names", names)
 
       _ ->
         function
@@ -364,9 +377,10 @@ defmodule Explorer.SmartContract.Reader do
           %{method_id: String.t(), args: [term()] | nil},
           :regular | :proxy,
           String.t() | nil,
-          [api?]
+          [],
+          boolean()
         ) :: %{:names => [any()], :output => [%{}]}
-  def query_function_with_names(contract_address_hash, params, type, from, abi, options \\ [])
+  def query_function_with_names(contract_address_hash, params, type, from, abi, leave_error_as_map, options \\ [])
 
   def query_function_with_names(
         contract_address_hash,
@@ -374,6 +388,7 @@ defmodule Explorer.SmartContract.Reader do
         :regular,
         from,
         abi,
+        leave_error_as_map,
         _options
       ) do
     outputs =
@@ -382,7 +397,7 @@ defmodule Explorer.SmartContract.Reader do
         method_id,
         args || [],
         from,
-        true,
+        leave_error_as_map,
         abi
       )
 
@@ -390,7 +405,15 @@ defmodule Explorer.SmartContract.Reader do
     %{output: outputs, names: names}
   end
 
-  def query_function_with_names(contract_address_hash, %{method_id: method_id, args: args}, :proxy, from, _abi, options) do
+  def query_function_with_names(
+        contract_address_hash,
+        %{method_id: method_id, args: args},
+        :proxy,
+        from,
+        _abi,
+        leave_error_as_map,
+        options
+      ) do
     abi = get_abi(contract_address_hash, :proxy, options)
 
     outputs =
@@ -399,7 +422,7 @@ defmodule Explorer.SmartContract.Reader do
         method_id,
         args || [],
         from,
-        true,
+        leave_error_as_map,
         abi
       )
 
@@ -731,12 +754,95 @@ defmodule Explorer.SmartContract.Reader do
     Map.put_new(output, "value", Encoder.unescape(value))
   end
 
+  defp new_value(%{"type" => "tuple" <> _types = type} = output, values, index) do
+    value = Enum.at(values, index)
+
+    result =
+      if String.ends_with?(type, "[]") do
+        value
+        |> Enum.map(fn tuple -> new_value(%{"type" => String.slice(type, 0..-3)}, [tuple], 0) end)
+        |> flat_arrays_map()
+      else
+        value
+        |> zip_tuple_values_with_types(type)
+        |> Enum.map(fn {type, part_value} ->
+          new_value(%{"type" => type}, [part_value], 0)
+        end)
+        |> flat_arrays_map()
+        |> List.to_tuple()
+      end
+
+    Map.put_new(output, "value", result)
+  end
+
   defp new_value(output, [value], _index) do
     Map.put_new(output, "value", value)
   end
 
   defp new_value(output, values, index) do
     Map.put_new(output, "value", Enum.at(values, index))
+  end
+
+  defp flat_arrays_map(%{"value" => value}) do
+    flat_arrays_map(value)
+  end
+
+  defp flat_arrays_map(value) when is_list(value) do
+    Enum.map(value, &flat_arrays_map/1)
+  end
+
+  defp flat_arrays_map(value) when is_tuple(value) do
+    value
+    |> Tuple.to_list()
+    |> flat_arrays_map()
+    |> List.to_tuple()
+  end
+
+  defp flat_arrays_map(value) do
+    value
+  end
+
+  @spec zip_tuple_values_with_types(tuple, binary) :: [{binary, any}]
+  def zip_tuple_values_with_types(value, type) do
+    types_string =
+      type
+      |> String.slice(6..-2)
+
+    types =
+      if String.trim(types_string) == "" do
+        []
+      else
+        types_string
+        |> String.graphemes()
+      end
+
+    tuple_types =
+      types
+      |> Enum.reduce(
+        {[""], 0},
+        fn
+          ",", {types_acc, 0} ->
+            {["" | types_acc], 0}
+
+          char, {[acc | types_acc], bracket_stack} ->
+            new_bracket_stack =
+              case char do
+                "[" -> bracket_stack + 1
+                "]" -> bracket_stack - 1
+                _ -> bracket_stack
+              end
+
+            {[acc <> char | types_acc], new_bracket_stack}
+        end
+      )
+      |> elem(0)
+      |> Enum.reverse()
+
+    values_list =
+      value
+      |> Tuple.to_list()
+
+    Enum.zip(tuple_types, values_list)
   end
 
   @spec bytes_to_string(<<_::_*8>>) :: String.t()
