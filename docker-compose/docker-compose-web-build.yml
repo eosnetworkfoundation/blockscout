@@ -4,7 +4,7 @@ services:
   backend:
     image: blockscout/blockscoutevm:${DOCKER_TAG:-latest}
     extends:
-      file: ./services/docker-compose-backend.yml
+      file: ./services/backend.yml
       service: backend
     container_name: 'backend'
     build:
@@ -18,7 +18,7 @@ services:
         CACHE_TOTAL_GAS_USAGE_COUNTER_ENABLED: ""
         CACHE_ADDRESS_WITH_BALANCES_UPDATE_INTERVAL: ""
         ADMIN_PANEL_ENABLED: ""
-        RELEASE_VERSION: 5.3.1
+        RELEASE_VERSION: 5.3.3
     environment:
       -  DISABLE_INDEXER=true
       -  DATABASE_URL=${DATABASE_URL}
